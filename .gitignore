@@ -1,0 +1,21 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# runtime state and logs
+state/
+logs/
+
+# test + data caches
+.pytest_cache/
+.qqq_cache/
+*.pkl
+
+# office lock files
+.~lock.*#
+*.xlsx

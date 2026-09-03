@@ -1,0 +1,225 @@
+# =====================================================================
+#  ORB Trading Bot - Configuration
+#  Strategy: Opening Range Breakout on a news/volatility-screened universe.
+#  Edit these values to tune the bot. No code changes needed.
+# =====================================================================
+
+# Fallback watchlist: used only if the pre-market screener is unavailable
+# (e.g. your Alpaca plan doesn't include the screener data feed).
+fallback_symbols:
+  - SPY
+  - QQQ
+  - AAPL
+  - NVDA
+  - TSLA
+
+# --- Pre-market screener: finds volatile movers to trade ---
+screener:
+  enabled: true
+  top_most_actives: 20      # pull this many most-active stocks
+  top_movers: 20            # pull this many top gainers + losers
+  max_candidates: 40        # cap the combined candidate pool
+  min_price: 5              # skip penny stocks
+  max_price: 400            # skip names too expensive for a small account
+  min_abs_gap_pct: 2.0      # only keep names already moving >= this % (volatility)
+  max_abs_gap_pct: 75.0     # skip extreme gappers (+200% names); 0 = off
+  # v1.11 liquidity floor: skip names trading fewer CONSOLIDATED shares than
+  # this (most-actives volume when available; else prev-day bar volume, with
+  # the floor auto-scaled ~/25 on the IEX feed since IEX bars carry ~4% of
+  # the tape — v1.11.1 fix, 2026-08-12: the unscaled floor rejected 44/46
+  # candidates on 08-11 and left one target). Thin names give bad fills and
+  # unfillable exits (AHCO 08-04/05 bled -5.4% overnight; CWVX needed 3 entry
+  # attempts + partial fill). 0 = off.
+  min_prev_day_volume: 2000000
+
+# --- News scan: informs direction and ranking; rescanned all day ---
+news:
+  enabled: true
+  lookback_hours: 24        # how far back to read headlines pre-market
+  # v1.2: raised 0.20 -> 0.50 so only STRONG news sets a directional bias
+  # (weak headlines no longer veto breakouts in the "wrong" direction).
+  min_sentiment_for_bias: 0.50  # |score| above this sets a long/short bias
+  require_news: false       # if true, only trade names that have recent news
+  min_articles: 0           # require >= N recent articles to be a target (0 = off)
+  # Intraday rescan: check targets + open positions for FRESH headlines.
+  rescan_interval_seconds: 60   # re-check news this often during the day (0 = off)
+  exit_on_adverse: true         # close a position if fresh news turns strongly against it
+  adverse_exit_score: 0.5       # |fresh score| against the position needed to exit
+
+# --- Selection: how the day's target list is chosen ---
+selection:
+  max_targets: 10           # trade up to this many names per day (v1.2: was 5)
+  weight_sentiment: 1.0     # how much news sentiment counts in the ranking
+  weight_gap: 1.0           # how much the pre-market gap % counts
+  weight_volume: 0.5        # how much relative volume counts
+  # v1.2: gap size no longer forces a directional bias (was: any |gap| >= 2%
+  # set one, which caused most skipped breakouts). Set e.g. 10.0 to restore
+  # gap-based bias for big gappers only; 0 = off (bias comes from news alone).
+  gap_bias_min_pct: 0
+  # v1.7: one bet per underlying — leveraged ETF twins (SMCX/SMCL/SNXX all
+  # track SMCI) count as the same trade; keep only the strongest. 0 = off.
+  max_per_underlying: 1
+  # v1.14 (2026-08-25): one bet per correlated THEME. The underlying cap above
+  # reads MARA/CONL/ETHA/BITO/IBIT as five different bets; the market read them
+  # as one. On 2026-08-21 all five were held at once (-46.92 while the day's
+  # two uncorrelated names made +22.25); on 08-24 four of five positions were
+  # crypto again. Over those two sessions crypto-linked names lost 62.72 across
+  # nine trades and everything else made +11.98 across three.
+  #
+  # Measured on daily close-to-close returns rather than a keyword list of
+  # themes, so it generalises to themes nobody has named yet. Returns are a
+  # RATIO, so the IEX feed's partial-tape problem largely cancels — this is not
+  # the v1.11 absolute-volume-floor failure mode.
+  #
+  # A name with unknown or short history is NEVER blocked (the v1.11.1 lesson).
+  # Watch the "CORRELATION DATA: n/m candidates" log line: if that ratio is
+  # low the cap is quietly inert, which is the failure mode to look for.
+  #
+  # 0.80 is a starting value, NOT a swept one — nothing in this project has
+  # survived out-of-sample parameter tuning, so it is set by judgement:
+  # comfortably above ordinary same-market drift (~0.3-0.6) and below the
+  # ~0.9+ of true twins. Raise toward 0.90 if it is dropping names you want.
+  # 0 = off.
+  max_correlation: 0.80
+  max_per_cluster: 1            # how many names from one correlated group
+  correlation_lookback_days: 30 # trading days of returns used for the estimate
+
+# --- Opening Range Breakout entry settings ---
+strategy:
+  opening_range_minutes: 15     # range = first N minutes after the open
+  # v1.13 (2026-08-14): 180 -> 60. In the paper trial, entries at >= 60 min
+  # after the open were 12 trades for -122.50 (mean -10.21, best winner only
+  # +4.04); entries under 60 min were 44 trades for +100.80. Welch t = 2.60.
+  # The ORB literature agrees by construction: the paper's breakout fires off a
+  # 5-minute range, and Tsai et al. (2019) found profits concentrate within
+  # minutes of the open. By 11:00 you are not catching an initiation, you are
+  # buying an extended move — the tell is that no late entry ever ran.
+  # CAVEAT: 60 was chosen post-hoc from 8 tested splits on 56 trades, which is
+  # a false-positive-prone procedure. Sweep it (`--entry-window 30,60,90,180`)
+  # and revisit. This is a RESTRICTION, so the downside of being wrong is
+  # missed trades, not a new failure mode — that asymmetry is why it ships
+  # ahead of the sweep while the 5-min range and direction rule do not.
+  entry_window_minutes: 60      # only open new trades within N min of the open (v1.2: 90, v1.12: 180)
+  allow_shorts: false           # v1.9 validation week: OFF to mirror the live
+                                # CASH account (no margin, no PDT). Was true
+                                # through the Jul paper trial.
+  require_volume_filter: true   # breakout bar must beat avg OR volume (v1.3: was false)
+  one_trade_per_symbol: true
+  # v1.3: entry quality filters (false breakouts + bad fills)
+  confirm_bar_close: true       # a completed 1-min bar must CLOSE beyond the range
+  # v1.5: confirmation speed fixes. On 2026-07-17 five targets broke out within
+  # 11 minutes of the range forming and NONE confirmed in time (only a late
+  # ATAI entry an hour after the open, which went nowhere).
+  confirm_lookback_bars: 3      # accept a confirming close in any of the last N bars (was 1)
+  volume_filter_ratio: 0.5      # breakout bar volume >= this x avg OR bar volume (was 1.0;
+                                # OR bars carry the day's heaviest volume, so 1.0 blocked
+                                # nearly every mid-morning breakout)
+  max_spread_pct: 0.5           # skip entry if bid-ask spread wider than this % (0 = off)
+  # v1.12 (2026-08-13): opening relative volume — today's opening-range volume
+  # divided by this symbol's OWN average opening-range volume over the last N
+  # sessions. Zarattini/Barbon/Aziz (2024) tested ORB on 7,000 US stocks: the
+  # unfiltered strategy returned 29% over 2016-2023 with a 41.4% hit ratio
+  # (this bot's is 41.8%); restricted to the most unusually active names it
+  # returned 1,637%, hit ratio 48.4%. The existing `rel_volume` in the ranking
+  # is NOT this — screener.py divides by the day's biggest active, which is
+  # closer to a market-cap proxy, and it is 0.0 for 45% of trades so far.
+  # 0 = MEASURE AND LOG ONLY (no gating). Left off until swept: see
+  # REVIEW-2026-08-13.md. Every entry now records the value in
+  # trade_features.csv, so the data to pick a threshold accumulates live.
+  min_opening_rel_volume: 0.0
+  rel_volume_lookback_days: 14
+  respect_news_bias: true       # only enter in the news-implied direction, when there is one
+  max_trades_per_day: 10        # v1.2: was 5; daily -5% breaker still caps total damage
+
+# --- Per-trade exits (your 3-5% profit / ~3% stop) ---
+exits:
+  mode: percent             # "percent" (this) or "range" (classic ORB brackets)
+  # v1.9 flip (2026-08-03, from the arm-dimension sweep): under LIVE trail
+  # semantics (arms past breakeven) the tight INITIAL stop is what carries the
+  # edge — all stop-1.5 rows sim positive, stop-3.0 rows sim negative. Chosen
+  # row: stop 1.5 / trail 1.25 / tp off / hold off (+188, exp +0.85, maxDD 211).
+  # NOTE: stop feeds sizing (risk 1%/stop% = notional) — the notional cap
+  # binds, so effective risk ≈ 0.5% of equity per trade.
+  # v1.10 (2026-08-10) widened this to 2.5 after the Aug 4-6 whipsaws, but the
+  # 2026-08-11 sweep (Jun 8-Aug 8, 230 trades, arm=breakeven/trail 1.25/tp off)
+  # is monotonic AGAINST it: 1.5 -> +268 exp 1.17 dd 222; 2.0 -> +151; 2.5 ->
+  # +32 dd 334; 3.0 -> -65. Aug 4-6 pain was the broken (silent) trail leaving
+  # winners unprotected, fixed server-side in v1.11 — not stop width. Reverted.
+  stop_pct: 1.5
+  # TP effectively OFF (sweep: capping winners costs ~1/3 of expectancy once
+  # the trail handles the downside). 25% is an unreachable bracket ceiling —
+  # the trail or EOD flatten is the real upside exit.
+  tp_min_pct: 25.0          # take-profit floor (was 3.0)
+  tp_max_pct: 25.0          # take-profit ceiling (was 5.0)
+  # Take-profit is scaled between tp_min and tp_max by each stock's volatility,
+  # measured as the opening range size as a % of price. Calmer names target
+  # ~tp_min, more volatile names target ~tp_max.
+  vol_ref_low_pct: 0.5      # OR% at/below which we use tp_min
+  vol_ref_high_pct: 2.0     # OR% at/above which we use tp_max
+  # Stop-limit: cap slippage on thin names. When the stop triggers, exit with
+  # a limit no worse than stop_limit_offset_pct beyond the stop price.
+  stop_limit: true
+  stop_limit_offset_pct: 0.5
+  # v1.3: breakeven stop — once up this % move the stop to entry, so a winner
+  # can no longer turn into a full loser (avg loss was > avg win). 0 = off.
+  # v1.9: OFF — redundant with the trail (which passes breakeven at MFE ≈
+  # trail%), and the sweep rows validated don't model it. One fewer knob.
+  breakeven_trigger_pct: 0
+  # v1.5: time stop — close a position still open after this many minutes.
+  # Neither TP nor SL hit by then means the trade is dead money (ATAI
+  # 2026-07-17: held 5h19m for -0.3%). 0 = off.
+  # v1.9: OFF — sweep says hold-off beats 180 with the trail on; sub-stop dead
+  # trades now ride to the EOD flatten instead.
+  max_hold_minutes: 0
+  # v1.8: trailing stop — ratchet the stop to this % below the peak favorable
+  # price (above, for shorts). Only tightens, never loosens; takes over beyond
+  # breakeven. 0 = off.
+  # v1.9: ON at 1.25 (arm-dimension sweep, 2026-08-03). FROZEN through the
+  # Aug 3-7 validation week — see VALIDATION-GO-NOGO.md.
+  # v1.11: now SERVER-SIDE. The v1.8 replace_order ratchet failed silently on
+  # every attempt Aug 3-6 (zero TRAIL lines; CWVX peaked +3.88% and still
+  # exited at the full stop). Once a position's peak is past breakeven+trail,
+  # the bot cancels the bracket legs and hands the exit to a native Alpaca
+  # trailing-stop order (tick-by-tick high-water mark, no 30s poll lag).
+  trail_pct: 1.25
+  # Used only when mode: range
+  take_profit_r: 1.0
+  stop_buffer_r: 0.10
+
+# --- Position sizing ---
+sizing:
+  risk_per_trade_pct: 1.0       # % of equity risked per trade (entry -> stop)
+  max_position_notional: 700    # hard $ cap on one position (0 = disable)
+  whole_shares_only: true
+
+# --- Daily risk circuit breaker (stops trading for the day) ---
+# NOTE: widened from the original 3/2 to leave room for up to 5 trades that
+# each risk ~1% with a 3% stop. Tighten these if you want fewer trades/day.
+risk:
+  # v1.12 (2026-08-13): profit breaker OFF (0 = disabled). It fired once, on
+  # 2026-08-03, ending the best day of the trial (+127.55) at +6.14% with the
+  # trail still running on three winners. Capping the right tail has no risk
+  # justification: the -5% loss breaker and the EOD flatten bound the downside,
+  # and the ORB literature's best variant is no fixed target + close exit.
+  # Trade-off accepted: a day can now round-trip from +6% to the -5% breaker.
+  daily_profit_target_pct: 0
+  daily_max_loss_pct: 5.0
+  flatten_on_breaker: true
+
+# --- Timing / runtime ---
+runtime:
+  poll_interval_seconds: 30
+  flatten_before_close_minutes: 10
+  data_feed: iex            # free accounts must use "iex"
+  premarket_scan: true      # run the screener/news scan before the open
+  scan_minutes_before_open: 30  # start early and it naps, then scans this close to the open
+  # v1.2: intraday re-screen — rerun the movers/news scan this often during
+  # the entry window and add NEW qualifying movers to the target list (until
+  # the pool is full). 0 = off.
+  intraday_rescreen_minutes: 30
+  # v1.13: refine MFE/MAE from minute-bar highs/lows this often (seconds).
+  # The 30s poll samples last-trade prices and misses spike-and-retrace moves;
+  # since the trail arms off that peak, a missed spike is a trail that never
+  # arms. 0 = off (polled values only). Costs 1 bars call per open position
+  # per interval, in the monitoring loop — never on the entry path.
+  excursion_bar_seconds: 60
