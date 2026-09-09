@@ -103,6 +103,10 @@ EXIT_TYPES = {
     ("2026-08-26", "SNXX"): "stop",
     ("2026-08-26", "DKS"): "trail",
     ("2026-08-26", "PATH"): "stop",
+    ("2026-09-08", "DYN"): "stop",
+    ("2026-09-08", "TSLL"): "trail",
+    ("2026-09-09", "IRD"): "trail",
+    ("2026-09-09", "INTC"): "trail",
 }
 
 rows = list(csv.DictReader(open(REPO / "state" / "trade_history.csv", newline="")))
