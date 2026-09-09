@@ -1,0 +1,41 @@
+[Unit]
+Description=ORB trading bot (daily session)
+After=network-online.target
+Wants=network-online.target
+OnFailure=orb-alert@%n.service
+
+[Service]
+Type=simple
+User=orb
+WorkingDirectory=/opt/orb-bot
+ExecStart=/opt/orb-bot/deploy/start.sh
+
+# The bot exits itself after the EOD summary (~15:50 ET). This is a backstop
+# in case it ever hangs: 09:25 + 7h30m lands well after the close.
+RuntimeMaxSec=27000
+
+# run.py handles KeyboardInterrupt (SIGINT) but NOT SIGTERM, so a default
+# `systemctl stop` would kill it with nothing in the day's log. SIGINT at least
+# leaves the "Bot interrupted by user" line. NOTE: neither signal flattens open
+# positions -- see "Still open" in README-VPS.md.
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Mirror the Windows start_bot.ps1 behaviour: restart on crash, up to 5 times.
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+
+# Basic hardening -- the bot only needs its own directory and outbound HTTPS.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/orb-bot/logs /opt/orb-bot/state
+
+[Install]
+WantedBy=multi-user.target

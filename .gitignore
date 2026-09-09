@@ -19,3 +19,9 @@ logs/
 # office lock files
 .~lock.*#
 *.xlsx
+
+# vps alert config (ntfy topic)
+deploy/notify.env
+
+# scratch: single-combo output, overwritten each run (named copies are kept)
+qqq_trades.csv

@@ -1,0 +1,15 @@
+[Unit]
+Description=Start the ORB bot each market weekday morning
+
+[Timer]
+# Host timezone MUST be America/New_York (see the migration checklist) so this
+# tracks EDT/EST automatically. 09:25 gives the pre-market screener ~5 minutes
+# before the 09:30 open, matching what the laptop did.
+OnCalendar=Mon-Fri 09:25
+# Do NOT set Persistent=true: a missed window should stay missed, not fire the
+# bot at some random hour after a reboot.
+Persistent=false
+Unit=orb-bot.service
+
+[Install]
+WantedBy=timers.target
