@@ -35,6 +35,27 @@ HISTORY = REPO / "state" / "trade_history.csv"
 
 PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 
+# US equity market holidays. Without these every holiday reads as a lost
+# session and the "no log today" check cries wolf until it gets ignored.
+MARKET_HOLIDAYS = {
+    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
+    "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+}
+
+
+def is_trading_day(d: date) -> bool:
+    return d.weekday() < 5 and d.isoformat() not in MARKET_HOLIDAYS
+
+
+def missing_sessions(back_to: date, through: date, have: set[str]) -> list[str]:
+    """Trading days in [back_to, through] with no log on disk."""
+    out, cur = [], back_to
+    while cur <= through:
+        if is_trading_day(cur) and cur.isoformat() not in have:
+            out.append(cur.isoformat())
+        cur = date.fromordinal(cur.toordinal() + 1)
+    return out
+
 # Tolerance on "the stop held": fills are never exact, and a stop-limit can
 # slip a little. Beyond this multiple of the intended stop it is a real breach.
 #
@@ -404,8 +425,20 @@ def main() -> int:
         day = args.day or date.today().isoformat()
         p = LOGS / f"orb_{day}.log"
         if not p.exists():
-            print(f"No log for {day} — market holiday, or the bot never started.")
-            return 0
+            d = datetime.strptime(day, "%Y-%m-%d").date()
+            if not is_trading_day(d):
+                print(f"No log for {day} — not a trading day. Nothing to check.")
+                return 0
+            # v1.15: a trading day with no log is a FAILURE, not a shrug. This
+            # used to `return 0` with a soft "holiday, or the bot never started"
+            # and the daily recap accepted it: Aug 7/10, then six more sessions
+            # Aug 28-Sep 4 (2026), all lost to the bot simply not being armed,
+            # none flagged. A day that produced nothing is the cheapest possible
+            # way to fail validation and the easiest to miss.
+            print(f"{day}  [FAIL]")
+            print("  FAIL  no session — trading day with no log at all. The bot "
+                  "never started, or was never armed (`python arm.py`).")
+            return 1
         paths = [p]
 
     any_fail = False
@@ -424,25 +457,38 @@ def main() -> int:
 
     print("\n".join(blocks) if blocks else "All sessions clean.")
 
-    # Missing weekday sessions: two of the Aug 3-7 validation week were lost
-    # this way (no log at all on Aug 7 and Aug 10) and nothing flagged it.
-    if args.all and paths:
-        have = {p.stem.replace("orb_", "") for p in paths}
-        days = sorted(d for d in have if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
-        if days:
-            d0 = datetime.strptime(days[0], "%Y-%m-%d").date()
-            d1 = datetime.strptime(days[-1], "%Y-%m-%d").date()
-            missing = []
-            cur = d0
-            while cur <= d1:
-                if cur.weekday() < 5 and cur.isoformat() not in have:
-                    missing.append(cur.isoformat())
-                cur = date.fromordinal(cur.toordinal() + 1)
-            if missing:
-                print(f"\nWeekdays with NO log at all ({len(missing)}): "
-                      f"{', '.join(missing)}")
-                print("  (US market holidays are expected here; anything else is "
-                      "a lost validation day.)")
+    # Missing sessions: two of the Aug 3-7 validation week were lost this way
+    # (no log on Aug 7 and Aug 10) and nothing flagged it; then six more went
+    # the same way Aug 28-Sep 4. v1.15: this now runs on EVERY invocation, not
+    # only under --all, because the daily recap calls the bare command — the
+    # one code path where the gap was invisible.
+    on_disk = {p.stem.replace("orb_", "") for p in LOGS.glob("orb_*.log")}
+    on_disk = {d for d in on_disk if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)}
+    if on_disk:
+        first = datetime.strptime(min(on_disk), "%Y-%m-%d").date()
+        if args.all:
+            window_start, label = first, "Trial to date"
+        else:
+            # Trailing two weeks is enough to catch an outage while it is still
+            # actionable, without re-reporting ancient history every evening.
+            end = datetime.strptime(args.day or date.today().isoformat(),
+                                    "%Y-%m-%d").date()
+            window_start = max(first, date.fromordinal(end.toordinal() - 14))
+            label = "Last 14 days"
+        window_end = datetime.strptime(max(on_disk), "%Y-%m-%d").date()
+        if not args.all:
+            window_end = max(
+                window_end,
+                datetime.strptime(args.day or date.today().isoformat(),
+                                  "%Y-%m-%d").date(),
+            )
+        missing = missing_sessions(window_start, window_end, on_disk)
+        if missing:
+            any_fail = True
+            print(f"\n{label}: {len(missing)} trading day(s) with NO log at all "
+                  f"— {', '.join(missing)}")
+            print("  Each one is a lost validation session. Market holidays are "
+                  "already excluded.")
 
     return 1 if any_fail else 0
 

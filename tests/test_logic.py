@@ -475,9 +475,12 @@ def test_trailing_stop():
     from orb_bot.runner import Runner
 
     class FakePos:
-        def __init__(self, symbol, entry, side, qty=10):
+        # v1.15: cur_pct is the LIVE unrealized P&L %, which is what Alpaca
+        # anchors the trailing high-water mark on. Defaults to 0 (at entry).
+        def __init__(self, symbol, entry, side, qty=10, cur_pct=0.0):
             self.symbol, self.avg_entry_price, self.side = symbol, entry, side
             self.qty = qty
+            self.unrealized_plpc = cur_pct / 100.0
 
     class FakeBroker:
         def __init__(self, positions, ok=True):
@@ -503,6 +506,7 @@ def test_trailing_stop():
         r._excursion = excursion
         r._trail_stops = {}
         r._trail_active = set()
+        r._trail_deferred = set()
         r.log = logging.getLogger("test-trail")
         return r
 
@@ -512,9 +516,9 @@ def test_trailing_stop():
     r._check_trailing()
     assert r.broker.activations == []
 
-    # Long, peak +4%, trail 1.5: trailed level 104*(1-1.5%) = 102.44 > entry
-    # -> hand off to the native trailing stop, once.
-    r = make_runner(1.5, [FakePos("AAA", 100.0, "long")],
+    # Long, peak +4% AND price still there, trail 1.5: trailed level
+    # 104*(1-1.5%) = 102.44 > entry -> hand off to the native trailing stop.
+    r = make_runner(1.5, [FakePos("AAA", 100.0, "long", cur_pct=4.0)],
                     {"AAA": {"mfe": 4, "mae": 0, "mfe_pct": 4.0, "mae_pct": 0}})
     r._check_trailing()
     assert len(r.broker.activations) == 1
@@ -534,14 +538,36 @@ def test_trailing_stop():
 
     # Early peak (+1%): trailed level would be below entry -> leave alone
     # (initial stop governs; arming waits for breakeven).
-    r = make_runner(1.5, [FakePos("BBB", 50.0, "long")],
+    r = make_runner(1.5, [FakePos("BBB", 50.0, "long", cur_pct=1.0)],
                     {"BBB": {"mfe": 0.5, "mae": 0, "mfe_pct": 1.0, "mae_pct": 0}})
     r._check_trailing()
     assert r.broker.activations == []
 
-    # Short mirror, peak +4% (price fell 4%): trailed level 96*(1+1.5%) =
-    # 97.44 < entry -> arms; fallback stop above entry, limit above stop.
-    r = make_runner(1.5, [FakePos("CCC", 100.0, "short")],
+    # v1.15 REGRESSION (2026-09-09 IRD): peak +3.22% came from a bar high the
+    # 30s poll missed, and by the time the trail could arm price was back to
+    # +0.52%. Alpaca anchors the high-water mark HERE, not at the peak, so
+    # arming would hand over a trail locking -0.74% -- worse than the -1.5%
+    # bracket stop it replaces, and the old code did exactly that while logging
+    # "would lock ~+1.93%". Must NOT arm, and must say why exactly once.
+    r = make_runner(1.25, [FakePos("IRD", 6.83, "long", qty=102, cur_pct=0.52)],
+                    {"IRD": {"mfe": 22.44, "mae": -56.10,
+                             "mfe_pct": 3.22, "mae_pct": -8.05}})
+    r._check_trailing()
+    assert r.broker.activations == []
+    assert "IRD" in r._trail_deferred
+    r._check_trailing()  # dedup: still no arm, no second log
+    assert r.broker.activations == []
+    # Same peak, but price actually holds up there -> arms normally.
+    r = make_runner(1.25, [FakePos("IRD", 6.83, "long", qty=102, cur_pct=3.22)],
+                    {"IRD": {"mfe": 22.44, "mae": -56.10,
+                             "mfe_pct": 3.22, "mae_pct": -8.05}})
+    r._check_trailing()
+    assert len(r.broker.activations) == 1
+    assert "IRD" in r._trail_active and "IRD" not in r._trail_deferred
+
+    # Short mirror, peak +4% (price fell 4%) and still there: trailed level
+    # 96*(1+1.5%) = 97.44 < entry -> arms; fallback stop above entry.
+    r = make_runner(1.5, [FakePos("CCC", 100.0, "short", cur_pct=4.0)],
                     {"CCC": {"mfe": 4, "mae": 0, "mfe_pct": 4.0, "mae_pct": 0}})
     r._check_trailing()
     (sym, qty, side, trail, fb_stop, fb_lim), = r.broker.activations
@@ -556,7 +582,7 @@ def test_trailing_stop():
     assert r.broker.activations == []
 
     # Handoff failure: NOT marked active (so it retries next loop).
-    r = make_runner(1.5, [FakePos("EEE", 100.0, "long")],
+    r = make_runner(1.5, [FakePos("EEE", 100.0, "long", cur_pct=4.0)],
                     {"EEE": {"mfe": 4, "mae": 0, "mfe_pct": 4.0, "mae_pct": 0}},
                     ok=False)
     r._check_trailing()

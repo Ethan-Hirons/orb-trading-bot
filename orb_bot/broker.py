@@ -74,6 +74,19 @@ class Broker:
     def get_equity(self) -> float:
         return float(self.get_account().equity)
 
+    def get_buying_power(self) -> float | None:
+        """v1.15: cash actually available to open a new position.
+
+        Returned so the runner can decline a trade it cannot afford instead of
+        discovering it via three rejected submissions and a day-block (see
+        2026-09-09 SNXX). None means the value could not be read, in which case
+        callers should proceed rather than block on a telemetry failure."""
+        try:
+            return float(self.get_account().buying_power)
+        except Exception as e:  # noqa: BLE001
+            self.log.warning("could not read buying power: %s", e)
+            return None
+
     def get_last_equity(self) -> float:
         """Equity at the previous trading day's close (Alpaca last_equity).
         This is the baseline Alpaca's dashboard uses for 'daily change'."""
