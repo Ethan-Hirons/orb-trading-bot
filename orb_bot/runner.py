@@ -77,6 +77,10 @@ class Runner:
         # trailing-stop order (server-side; replaces the replace_order
         # ratchet that failed silently on every attempt Aug 3-6).
         self._trail_active: set[str] = set()
+        # v1.15: symbols whose peak qualified for the trail but whose current
+        # price had already retraced past breakeven+trail, so arming was held
+        # back. Dedup only — one "TRAIL DEFERRED" line per symbol per day.
+        self._trail_deferred: set[str] = set()
         # Dedup for confirmation/spread skip logs (once per symbol per day).
         self._filter_skips_logged: set[str] = set()
         # Dedup for unshortable short-breakout skips (once per day/symbol).
@@ -972,6 +976,29 @@ class Runner:
                 self.log.info("%s breakout %s but no valid trade plan.", symbol, side)
                 continue
 
+            # v1.15: affordability pre-check. Sizing caps at
+            # sizing.max_position_notional and never consults the account, so
+            # on a small balance the Nth concurrent entry is guaranteed to be
+            # rejected: 2026-09-09 SNXX asked for $685.99 against $669.78 of
+            # buying power, failed three times and got BLOCKED for the day, with
+            # an ERROR that read like a bug rather than a balance limit. Skip
+            # cleanly instead. None = telemetry failure, so fall through and let
+            # the broker decide rather than silently refusing to trade.
+            need = plan.qty * price
+            have = self.broker.get_buying_power()
+            if have is not None and need > have:
+                if symbol not in self._filter_skips_logged:
+                    self._filter_skips_logged.add(symbol)
+                    self.log.info(
+                        "%s breakout %s skipped: needs $%.2f but buying power is "
+                        "$%.2f (position cap $%.0f, %d open). Not an error — the "
+                        "account is fully deployed.",
+                        symbol, side, need, have,
+                        self.cfg.sizing.max_position_notional,
+                        len(state.traded_symbols),
+                    )
+                continue
+
             try:
                 order = self.broker.submit_bracket(
                     symbol=plan.symbol,
@@ -1220,12 +1247,35 @@ class Runner:
             side = getattr(pos.side, "value", str(pos.side)).lower()
             side = "short" if "short" in side else "long"
             sign = 1 if side == "long" else -1
-            peak = entry * (1 + sign * mfe_pct / 100.0)
-            desired = peak * (1 - sign * trail / 100.0)
-            # Arm only once trailing the CURRENT peak would lock >= breakeven
-            # (matches the sweep's arm=breakeven semantics; the initial
-            # bracket stop governs until then).
+            # v1.15 (2026-09-09): anchor on the CURRENT price, not the peak.
+            # Alpaca seeds the trailing high-water mark from the price at the
+            # moment the order is accepted (see broker.activate_trailing_stop),
+            # so the level actually protected has nothing to do with a peak the
+            # 30s poll reconstructed from a bar high. Arming off `mfe_pct` meant
+            # that whenever price had already retraced, the handoff replaced a
+            # live -stop_pct bracket stop with a trail anchored BELOW breakeven.
+            # 2026-09-09 IRD: peak +3.22% (bar high the poll missed), armed, log
+            # claimed "would lock ~+1.93%", realized -0.73%. The arm=breakeven
+            # semantics the sweeps validated require the anchor to be real.
+            cur_pct = float(getattr(pos, "unrealized_plpc", 0) or 0) * 100.0
+            anchor = entry * (1 + sign * cur_pct / 100.0)
+            desired = anchor * (1 - sign * trail / 100.0)
+            # Arm only once trailing FROM HERE would lock >= breakeven; until
+            # then the initial bracket stop governs.
             if (desired - entry) * sign <= 0:
+                # Say so once per symbol. A peak that qualifies but a current
+                # price that doesn't is exactly the state that used to arm
+                # silently and lock a loss.
+                if mfe_pct > trail and symbol not in self._trail_deferred:
+                    self._trail_deferred.add(symbol)
+                    self.log.info(
+                        "TRAIL DEFERRED %s: peak %+.2f%% qualifies but price is "
+                        "back at %+.2f%%; trailing from here would lock %+.2f%%. "
+                        "Keeping the -%.2f%% bracket stop.",
+                        symbol, mfe_pct, cur_pct,
+                        (desired / entry - 1) * 100.0 * sign,
+                        self.cfg.exits.stop_pct,
+                    )
                 continue
             fallback_stop = entry * (1 - sign * self.cfg.exits.stop_pct / 100.0)
             fallback_limit = None
@@ -1237,11 +1287,13 @@ class Runner:
                 fallback_stop=fallback_stop, fallback_limit=fallback_limit,
             ):
                 self._trail_active.add(symbol)
+                self._trail_deferred.discard(symbol)
                 locked = (desired / entry - 1) * 100.0 * sign
                 self.log.info(
-                    "TRAIL ACTIVATED %s: peak %+.2f%%; native trailing stop "
-                    "%.2f%% handed to Alpaca (would lock ~%+.2f%% at current "
-                    "peak).", symbol, mfe_pct, trail, locked,
+                    "TRAIL ACTIVATED %s: peak %+.2f%%, armed at %+.2f%%; native "
+                    "trailing stop %.2f%% handed to Alpaca, anchored at the "
+                    "CURRENT price (locks ~%+.2f%% if it turns here).",
+                    symbol, mfe_pct, cur_pct, trail, locked,
                 )
             # On failure activate_trailing_stop already logged loudly and
             # restored a plain stop; we retry the handoff next loop.
