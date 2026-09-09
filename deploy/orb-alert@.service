@@ -1,0 +1,8 @@
+[Unit]
+Description=Push an alert when %i fails
+
+[Service]
+Type=oneshot
+User=orb
+WorkingDirectory=/opt/orb-bot
+ExecStart=/opt/orb-bot/deploy/notify.sh "ORB bot FAILED" "Unit %i entered a failed state. Check: journalctl -u %i -n 50" high

@@ -1,0 +1,8 @@
+[Unit]
+Description=Alert if no ORB session is running
+
+[Service]
+Type=oneshot
+User=orb
+WorkingDirectory=/opt/orb-bot
+ExecStart=/opt/orb-bot/deploy/healthcheck.sh
