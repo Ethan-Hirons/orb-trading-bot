@@ -1,5 +1,47 @@
 # Track B (qqq_orb.py) — holdout criteria, LOCKED 2026-09-09
 
+---
+
+# ⛔ RESULT — 2026-09-12: **NO-GO. 4 of 5 criteria FAILED.**
+
+Holdout run once, as specified. Criteria below were NOT modified.
+
+```
+trades,win_rate,expectancy,expectancy_r,total_pnl,final_equity,return_pct,max_dd,max_dd_pct,sharpe
+130,33.8,-2.68,-0.184,-348.55,1701.45,-17.0,542.58,24.65,-1.86
+```
+
+| # | criterion | required | actual | verdict |
+|---|---|---|---|---|
+| 1 | expR > 0 | > 0 | **−0.184** | **FAIL** |
+| 2 | expR ≥ +0.045 | ≥ +0.045 | **−0.184** | **FAIL** |
+| 3 | TQQQ and SQQQ both positive | both > 0 | impossible, total negative | **FAIL** |
+| 4 | maxDD < 30% | < 30% | 24.65% | pass |
+| 5 | positive after dropping top 2 | > 0 | negative before dropping any | **FAIL** |
+
+**In-sample → out-of-sample, the sign reversed:**
+
+| | tuning (ex-2026) | holdout |
+|---|---|---|
+| expR | +0.091 | **−0.184** |
+| return | +92.2% | **−17.0%** |
+| Sharpe | 1.42 (2bps) / 0.92 (5bps) | **−1.86** |
+| win rate | 33.7% | 33.8% |
+
+Win rate held almost exactly; the payoff structure did not. n = 130 matched the
+pre-registered estimate, so this is not a small-sample artifact relative to what
+was planned.
+
+**Per the locked rule: no paper trading, no further tuning of this variant, and
+the holdout is NOT re-run with different parameters.** Track B is closed.
+
+This is the **third** in-sample result in this project to reverse sign out-of-
+sample (Run 1 entry-window, Run 5 combined levers, now Track B). The pattern is
+now the most reliable finding the project has produced.
+
+---
+
+
 Written **before** the holdout is run, deliberately. Run 6 produced an
 unarguable 0/6 verdict precisely because there was no room left to re-cut the
 data once the numbers were in. Same discipline here.

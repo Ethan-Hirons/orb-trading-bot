@@ -3,9 +3,19 @@ Description=Start the ORB bot each market weekday morning
 
 [Timer]
 # Host timezone MUST be America/New_York (see the migration checklist) so this
-# tracks EDT/EST automatically. 09:25 gives the pre-market screener ~5 minutes
-# before the 09:30 open, matching what the laptop did.
-OnCalendar=Mon-Fri 09:25
+# tracks EDT/EST automatically.
+#
+# 08:40 matches what the laptop's Task Scheduler used. The bot is designed to
+# start, nap, and run its pre-market scan at 09:00 (config.yaml
+# scan_minutes_before_open: 30). Starting at 08:40 gives it that full 20-minute
+# nap and a 30-minute margin before the 09:30 open.
+#
+# This was 09:25 on 2026-09-17, which is AFTER the intended 09:00 scan time --
+# the bot scanned immediately on boot with only ~5 minutes of slack. It worked
+# (the whole scan takes ~4 seconds) but left no room for a slow news call.
+# Changed to 08:40 on 2026-09-18. Ops fix, not a strategy change: entry_window
+# and opening_range are untouched, so this does NOT alter what gets traded.
+OnCalendar=Mon-Fri 08:40
 # Do NOT set Persistent=true: a missed window should stay missed, not fire the
 # bot at some random hour after a reboot.
 Persistent=false
