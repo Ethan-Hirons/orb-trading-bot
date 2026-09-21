@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily ORB result to the phone, after the close
+
+[Timer]
+# 16:05 ET -- the bot writes its EOD summary at ~15:50 and exits.
+OnCalendar=Mon-Fri 16:05
+Persistent=false
+Unit=orb-summary.service
+
+[Install]
+WantedBy=timers.target

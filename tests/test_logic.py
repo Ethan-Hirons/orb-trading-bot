@@ -665,6 +665,7 @@ def test_excursion_from_minute_bars():
         r._excursion = dict(polled)
         r._last_bar_excursion = 0.0
         r._bar_scan_from = {}
+        r._first_seen = {}
         r.log = logging.getLogger("test-exc")
         return r
 
@@ -731,6 +732,182 @@ def test_runtime_config_excursion_bars_default():
     """Defaults on, at a cadence that costs one bars call per position/minute."""
     assert RuntimeConfig().excursion_bar_seconds == 60
     print("PASS test_runtime_config_excursion_bars_default")
+
+
+def test_excursion_never_scans_before_the_fill():
+    """v1.17 REGRESSION (2026-09-18 SNXX/MARA).
+
+    `_refine_excursion_from_bars` used `now - 20 minutes` as its first-sight
+    floor, so a 10:00:45 entry pulled bars back to 09:40 and scored the
+    opening range as the position's own excursion: SNXX reported MAE -3.86%
+    against a -1.50% bracket stop that was never breached, MARA -2.63%.
+
+    Not cosmetic. `_check_trailing` arms off `mfe_pct`, so for a short the
+    same window could arm the trail off a high the position never saw -- and
+    MAE is exactly the statistic someone would later cite to widen the stop.
+    """
+    import logging
+    from datetime import datetime, timedelta, timezone
+
+    from orb_bot.runner import Runner
+
+    class FakePos:
+        def __init__(self, symbol, entry, side, qty=10):
+            self.symbol, self.avg_entry_price, self.side = symbol, entry, side
+            self.qty = qty
+
+    class FakeBar:
+        def __init__(self, high, low, timestamp=None):
+            self.high, self.low, self.timestamp = high, low, timestamp
+
+    class FakeBroker:
+        def __init__(self, bars):
+            self.bars, self.windows = bars, []
+
+        def list_positions(self):
+            return []
+
+        def get_minute_bars(self, symbol, start, end):
+            self.windows.append((symbol, start, end))
+            # Mimic the real feed: only bars inside the requested window.
+            return [
+                b for b in self.bars.get(symbol, [])
+                if b.timestamp is None or b.timestamp >= start
+            ]
+
+    class FakeState:
+        def __init__(self, entry_times):
+            self.entry_times = entry_times
+
+    now = datetime.now(timezone.utc)
+    entry_dt = now - timedelta(minutes=8)
+
+    def make_runner(bars):
+        r = Runner.__new__(Runner)
+        r.cfg = _dummy_config()
+        r.cfg.runtime.excursion_bar_seconds = 60
+        r.broker = FakeBroker(bars)
+        r._excursion = {}
+        r._last_bar_excursion = 0.0
+        r._bar_scan_from = {}
+        r._first_seen = {}
+        r.log = logging.getLogger("test-exc-clamp")
+        return r
+
+    # SNXX shape: entered at 16.20 eight minutes ago. The opening range 12
+    # minutes back dipped to 15.58 (-3.83%); since the fill the worst tick is
+    # 16.12 (-0.49%) and the best is 16.48 (+1.73%).
+    pos = [FakePos("SNXX", 16.20, "long", qty=43)]
+    bars = {"SNXX": [
+        FakeBar(16.30, 15.58, now - timedelta(minutes=12)),  # PRE-ENTRY
+        FakeBar(16.25, 15.90, now - timedelta(minutes=10)),  # PRE-ENTRY
+        FakeBar(16.48, 16.12, now - timedelta(minutes=6)),
+        FakeBar(16.40, 16.20, now - timedelta(minutes=2)),
+    ]}
+    r = make_runner(bars)
+    state = FakeState({"SNXX": entry_dt.isoformat()})
+    r._refine_excursion_from_bars(pos, state)
+
+    # The fetch window itself must start at the fill, not 20 minutes back.
+    _sym, start, _end = r.broker.windows[0]
+    assert start == entry_dt, (start, entry_dt)
+
+    e = r._excursion["SNXX"]
+    assert abs(e["mae_pct"] - (-0.4938)) < 0.01, e   # 16.12, NOT 15.58
+    assert e["mae_pct"] > -1.50, e                   # never beyond the stop
+    assert abs(e["mfe_pct"] - 1.7284) < 0.01, e      # 16.48 still counted
+
+    # A bar that straddles the fill is dropped even if the feed returns it:
+    # its low predates the position.
+    r2 = make_runner({"SNXX": [
+        FakeBar(16.30, 15.58, entry_dt - timedelta(seconds=30)),  # straddles
+        FakeBar(16.48, 16.12, entry_dt + timedelta(minutes=1)),
+    ]})
+    r2.broker.get_minute_bars = (
+        lambda symbol, start, end: r2.broker.bars.get(symbol, [])
+    )  # feed ignores the window -> the filter is the only defence
+    r2._refine_excursion_from_bars(pos, state)
+    assert r2._excursion["SNXX"]["mae_pct"] > -1.50, r2._excursion
+
+    # No state (overnight leftover): falls back to first-seen, and with
+    # neither, behaviour is unchanged from v1.13.
+    r3 = make_runner(bars)
+    r3._first_seen["SNXX"] = entry_dt
+    r3._refine_excursion_from_bars(pos, None)
+    assert r3._excursion["SNXX"]["mae_pct"] > -1.50, r3._excursion
+
+    print("PASS test_excursion_never_scans_before_the_fill")
+
+
+def test_stop_request_flattens_before_exit():
+    """v1.17: SIGTERM/SIGINT must leave the account flat.
+
+    `systemctl stop` previously killed the process outright -- the 08-26 /
+    08-27 shape, where positions survived with only the broker-side bracket
+    protecting them."""
+    import logging
+
+    from orb_bot.runner import Runner
+
+    r = Runner.__new__(Runner)
+    r.cfg = _dummy_config()
+    r.log = logging.getLogger("test-stop")
+    r._stop_requested = False
+    calls = {"flatten": 0, "iterations": 0}
+
+    def fake_flatten():
+        calls["flatten"] += 1
+
+    def fake_loop_once(state, risk):
+        calls["iterations"] += 1
+        r.request_stop()      # signal lands during the iteration
+        return False          # ... and the iteration does NOT end the session
+
+    r._flatten_all_verified = fake_flatten
+    r._loop_once = fake_loop_once
+    r._trading_loop(None, None)
+
+    assert calls["iterations"] == 1, calls   # stopped after the first pass
+    assert calls["flatten"] == 1, calls      # and flattened on the way out
+    assert r.stop_requested
+
+    # A flatten that itself fails must be logged, not raised -- the process
+    # still has to exit, and the log is the only record that it went wrong.
+    r2 = Runner.__new__(Runner)
+    r2.cfg = _dummy_config()
+    r2.log = logging.getLogger("test-stop")
+    r2._stop_requested = True
+
+    def boom():
+        raise RuntimeError("broker down")
+
+    r2._flatten_all_verified = boom
+    r2._loop_once = lambda state, risk: True
+    r2._trading_loop(None, None)   # must not raise
+
+    print("PASS test_stop_request_flattens_before_exit")
+
+
+def test_interruptible_sleep_returns_early():
+    """The stop flag is useless if the loop is parked in a 300s sleep."""
+    import logging
+    import time as _time
+
+    from orb_bot.runner import Runner
+
+    r = Runner.__new__(Runner)
+    r.log = logging.getLogger("test-sleep")
+    r._stop_requested = True
+    t0 = _time.monotonic()
+    r._sleep(30)
+    assert _time.monotonic() - t0 < 1.0
+
+    r._stop_requested = False
+    t0 = _time.monotonic()
+    r._sleep(0.2)
+    assert _time.monotonic() - t0 >= 0.19
+
+    print("PASS test_interruptible_sleep_returns_early")
 
 
 def run_all():

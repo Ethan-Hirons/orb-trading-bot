@@ -4,6 +4,11 @@ After=network-online.target
 Wants=network-online.target
 OnFailure=orb-alert@%n.service
 
+# Crash-loop guard. These MUST live in [Unit] -- in [Service] systemd logs
+# "Unknown key name" and the limit is silently inactive (found 2026-09-20).
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=orb
@@ -14,18 +19,18 @@ ExecStart=/opt/orb-bot/deploy/start.sh
 # in case it ever hangs: 09:25 + 7h30m lands well after the close.
 RuntimeMaxSec=27000
 
-# run.py handles KeyboardInterrupt (SIGINT) but NOT SIGTERM, so a default
-# `systemctl stop` would kill it with nothing in the day's log. SIGINT at least
-# leaves the "Bot interrupted by user" line. NOTE: neither signal flattens open
-# positions -- see "Still open" in README-VPS.md.
-KillSignal=SIGINT
-TimeoutStopSec=30
+# v1.17: run.py installs a SIGTERM/SIGINT handler that asks the runner to
+# stop and FLATTENS every open position before exiting, so the default
+# `systemctl stop` is now safe mid-session. TimeoutStopSec must be generous
+# enough for that flatten (exit_position retries with backoff); if it expires
+# systemd SIGKILLs and positions are left open.
+KillSignal=SIGTERM
+TimeoutStopSec=120
 
 # Mirror the Windows start_bot.ps1 behaviour: restart on crash, up to 5 times.
+# (The 5-per-hour limit itself is set in [Unit] above.)
 Restart=on-failure
 RestartSec=30
-StartLimitIntervalSec=3600
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
