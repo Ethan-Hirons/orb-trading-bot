@@ -25,3 +25,7 @@ deploy/notify.env
 
 # scratch: single-combo output, overwritten each run (named copies are kept)
 qqq_trades.csv
+
+# Scratch for files that cannot be deleted from the Linux mount (see
+# RUNBOOK: rm is blocked there). Safe to empty from Windows at any time.
+_to_delete/
