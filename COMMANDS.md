@@ -258,7 +258,7 @@ Then confirm zero open positions in the Alpaca dashboard.
 ## Pull the logs down to the laptop
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File sync_logs.ps1
+powershell -ExecutionPolicy Bypass -File sync-logs.ps1
 ```
 
 ## Disable the stale laptop launcher
