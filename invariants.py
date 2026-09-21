@@ -419,29 +419,42 @@ def main() -> int:
     trail = load_trail_pct()
     stop_band = load_stop_band_pct()
 
+    no_session_fail = False
     if args.all:
         paths = sorted(LOGS.glob("orb_*.log"))
     else:
         day = args.day or date.today().isoformat()
         p = LOGS / f"orb_{day}.log"
-        if not p.exists():
+        if p.exists():
+            paths = [p]
+        else:
             d = datetime.strptime(day, "%Y-%m-%d").date()
-            if not is_trading_day(d):
-                print(f"No log for {day} — not a trading day. Nothing to check.")
-                return 0
-            # v1.15: a trading day with no log is a FAILURE, not a shrug. This
-            # used to `return 0` with a soft "holiday, or the bot never started"
-            # and the daily recap accepted it: Aug 7/10, then six more sessions
-            # Aug 28-Sep 4 (2026), all lost to the bot simply not being armed,
-            # none flagged. A day that produced nothing is the cheapest possible
-            # way to fail validation and the easiest to miss.
-            print(f"{day}  [FAIL]")
-            print("  FAIL  no session — trading day with no log at all. The bot "
-                  "never started, or was never armed (`python arm.py`).")
-            return 1
-        paths = [p]
+            paths = []
+            if is_trading_day(d):
+                # v1.15: a trading day with no log is a FAILURE, not a shrug.
+                # This used to `return 0` with a soft "holiday, or the bot never
+                # started" and the daily recap accepted it: Aug 7/10, then six
+                # more sessions Aug 28-Sep 4 (2026), all lost to the bot simply
+                # not being armed, none flagged. A day that produced nothing is
+                # the cheapest possible way to fail validation and the easiest
+                # to miss.
+                print(f"{day}  [FAIL]")
+                print("  FAIL  no session — trading day with no log at all. The "
+                      "bot never started, or was never armed (`python arm.py`).")
+                no_session_fail = True
+            else:
+                # v1.16 (2026-09-12): do NOT return here. This used to
+                # `return 0` immediately, which meant the trailing-14-day gap
+                # report below never ran on a weekend or a holiday. On Sat
+                # 2026-09-12 the bare command printed "Nothing to check" and
+                # exited 0 while Fri 09-11 sat there as an unflagged missed
+                # session — the exact blindness v1.15 removed from weekdays,
+                # surviving on the one day of the week you actually sit down to
+                # review. A non-trading day means no SESSION to check; it does
+                # not mean no GAPS to report.
+                print(f"No log for {day} — not a trading day.")
 
-    any_fail = False
+    any_fail = no_session_fail
     blocks = []
     for p in paths:
         try:
@@ -455,7 +468,11 @@ def main() -> int:
         if block:
             blocks.append(block)
 
-    print("\n".join(blocks) if blocks else "All sessions clean.")
+    # Only claim cleanliness when sessions were actually examined — on a
+    # non-trading day `paths` is empty and "All sessions clean." would be a
+    # false all-clear (v1.16).
+    if paths:
+        print("\n".join(blocks) if blocks else "All sessions clean.")
 
     # Missing sessions: two of the Aug 3-7 validation week were lost this way
     # (no log on Aug 7 and Aug 10) and nothing flagged it; then six more went

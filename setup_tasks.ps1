@@ -24,7 +24,18 @@ if ($tz -notmatch 'Eastern') {
     Write-Host "Edit setup_tasks.ps1 to your local equivalent before relying on them." -ForegroundColor Yellow
     Write-Host ""
 }
+# v1.16 (2026-09-12): the battery flags were MISSING, so both defaulted to the
+# blocking behaviour on a laptop:
+#   DisallowStartIfOnBatteries = True -> a session where the machine happened to
+#     be unplugged at 08:40 never started, silently.
+#   StopIfGoingOnBatteries     = True -> unplugging MID-SESSION made Task
+#     Scheduler kill the running bot. This is the best available explanation for
+#     2026-08-26 and 08-27: both died mid-day with no "Day done" and no "Flatten
+#     verified", trades unbooked until backfill.py, and no crash in the log.
+# Confirmed on the live registration 2026-09-12 (DisallowStartIfOnBatteries=True).
+# A bot on a laptop must never be gated on the power cable.
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit (New-TimeSpan -Hours 12)
 
 # 1. Launcher: starts (and restarts) the bot every weekday.

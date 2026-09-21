@@ -1,2 +1,2 @@
 trades,win_rate,expectancy,expectancy_r,total_pnl,final_equity,return_pct,max_dd,max_dd_pct,sharpe,avg_win,avg_loss,or_minutes,target_r,exits
-528,33.3,1.91,0.111,1007.35,3057.35,49.14,707.65,21.21,0.92,43.57,-18.92,15,off,"{'eod': 199, 'stop': 329}"
+130,33.8,-2.68,-0.184,-348.55,1701.45,-17.0,542.58,24.65,-1.86,24.13,-16.4,15,off,"{'stop': 83, 'eod': 47}"
