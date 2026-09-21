@@ -52,6 +52,22 @@ MARKET_OPEN = dtime(9, 30)
 MAX_CONSECUTIVE_ERRORS = 10
 
 
+def _bar_at_or_after(bar, cutoff: datetime) -> bool:
+    """True if `bar` opened at or after `cutoff` (v1.17 excursion clamp).
+
+    A bar with no usable timestamp is kept: the caller has already clamped the
+    fetch window, so keeping it is the same behaviour as before this filter."""
+    ts = getattr(bar, "timestamp", None)
+    if ts is None:
+        return True
+    try:
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts >= cutoff
+    except (AttributeError, TypeError):
+        return True
+
+
 class Runner:
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -96,6 +112,14 @@ class Runner:
         # bars since the previous one, with a 2-minute overlap.
         self._last_bar_excursion: float = 0.0
         self._bar_scan_from: dict[str, datetime] = {}
+        # v1.17: when this runner first saw each open position, used as the
+        # excursion lookback floor when `state.entry_times` has no row for it
+        # (an overnight leftover, or a fill this process did not place).
+        self._first_seen: dict[str, datetime] = {}
+        # v1.17: set by a SIGTERM/SIGINT handler (see run.py). The loop checks
+        # it and exits through the normal flatten path, so `systemctl stop`
+        # can no longer leave a position open overnight.
+        self._stop_requested = False
         # v1.12: opening relative volume. `_or_relvol_avg` is the per-symbol
         # BASELINE (own average opening-window volume), warmed outside the
         # entry path by `_prefetch_rel_volume`. `_or_relvol` is the computed
@@ -174,6 +198,9 @@ class Runner:
         # uses the freshest pre-market data instead of early-morning noise.
         if not state.scanned:
             self._wait_for_scan_window()
+            if self._stop_requested:
+                self.log.warning("SHUTDOWN requested before the scan; exiting.")
+                return
             targets = self._premarket_scan()
             state.targets = [t.as_state_dict() for t in targets]
             state.scanned = True
@@ -190,6 +217,9 @@ class Runner:
         self._prefetch_rel_volume([t["symbol"] for t in state.targets])
 
         self._wait_for_open()
+        if self._stop_requested:
+            self.log.warning("SHUTDOWN requested before the open; nothing held.")
+            return
         # v1.5: the bot should NEVER be holding at the open (it flattens
         # before every close). If a position slipped through — like INTC on
         # 2026-07-16, whose close fill was lost — close it immediately
@@ -302,7 +332,9 @@ class Runner:
                 int(lead.total_seconds() // 60),
                 int(min(300, remaining)),
             )
-            time.sleep(min(300, remaining))
+            self._sleep(min(300, remaining))
+            if self._stop_requested:
+                return
 
     def _wait_for_open(self) -> None:
         while not self.broker.is_market_open():
@@ -315,7 +347,32 @@ class Runner:
                 clock.next_open.astimezone(ET).strftime("%Y-%m-%d %H:%M ET"),
                 int(wait_s),
             )
-            time.sleep(wait_s)
+            self._sleep(wait_s)
+            if self._stop_requested:
+                return
+
+    # ---------- shutdown ----------
+
+    @property
+    def stop_requested(self) -> bool:
+        return self._stop_requested
+
+    def request_stop(self) -> None:
+        """Ask the session to end at the next safe point and flatten.
+
+        Signal-handler safe: this only sets a flag. All broker work happens on
+        the main loop, so a signal can never land in the middle of an order
+        submission."""
+        self._stop_requested = True
+
+    def _sleep(self, seconds: float) -> None:
+        """time.sleep, but wakes within a second of a stop request."""
+        deadline = time.monotonic() + max(0.0, seconds)
+        while not self._stop_requested:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(1.0, remaining))
 
     # ---------- main loop ----------
 
@@ -323,6 +380,18 @@ class Runner:
         poll = self.cfg.runtime.poll_interval_seconds
         errors = 0
         while True:
+            if self._stop_requested:
+                self.log.warning(
+                    "SHUTDOWN requested: flattening all positions before exit."
+                )
+                try:
+                    self._flatten_all_verified()
+                except Exception as e:  # noqa: BLE001
+                    self.log.error(
+                        "SHUTDOWN flatten FAILED: %s. CLOSE POSITIONS BY HAND "
+                        "in the Alpaca dashboard.", e
+                    )
+                break
             try:
                 if self._loop_once(state, risk):
                     break
@@ -341,9 +410,9 @@ class Runner:
                     except Exception as e2:  # noqa: BLE001
                         self.log.error("Flatten failed: %s", e2)
                     break
-                time.sleep(min(60, poll * errors))  # back off and retry
+                self._sleep(min(60, poll * errors))  # back off and retry
                 continue
-            time.sleep(poll)
+            self._sleep(poll)
 
     def _loop_once(self, state: DailyState, risk: RiskManager) -> bool:
         """One iteration of the trading loop. Returns True when the session
@@ -398,7 +467,7 @@ class Runner:
 
         # Excursion tracking (instrumentation only): record peak favorable /
         # worst adverse unrealized before any exit fires this iteration (v1.6).
-        self._track_excursion()
+        self._track_excursion(state)
 
         # Trailing stop (v1.8, off unless exits.trail_pct > 0): ratchet stops
         # toward the peak recorded above. Runs right after excursion tracking
@@ -527,7 +596,7 @@ class Runner:
                     p.symbol,
                 )
 
-    def _track_excursion(self) -> None:
+    def _track_excursion(self, state=None) -> None:
         """v1.13: update per-symbol peak favorable (MFE) and worst adverse
         (MAE) for each open position, from BOTH the polled unrealized P&L and
         the minute-bar highs/lows since the last check.
@@ -549,6 +618,9 @@ class Runner:
             upl_pct = float(getattr(pos, "unrealized_plpc", 0) or 0) * 100.0
             e = self._excursion.get(pos.symbol)
             if e is None:
+                self._first_seen.setdefault(
+                    pos.symbol, datetime.now(timezone.utc)
+                )
                 self._excursion[pos.symbol] = {
                     "mfe": upl, "mae": upl,
                     "mfe_pct": upl_pct, "mae_pct": upl_pct,
@@ -558,9 +630,29 @@ class Runner:
                     e["mfe"], e["mfe_pct"] = upl, upl_pct
                 if upl < e["mae"]:
                     e["mae"], e["mae_pct"] = upl, upl_pct
-        self._refine_excursion_from_bars(positions)
+        self._refine_excursion_from_bars(positions, state)
 
-    def _refine_excursion_from_bars(self, positions) -> None:
+    def _entry_dt(self, symbol: str, state) -> datetime | None:
+        """Fill time for `symbol` as an aware UTC datetime, or None.
+
+        Prefers the recorded entry time; falls back to when this runner first
+        saw the position, so a leftover with no `entry_times` row still never
+        scans back before we knew we held it."""
+        iso = None
+        if state is not None:
+            iso = getattr(state, "entry_times", {}).get(symbol)
+        if iso:
+            try:
+                dt = datetime.fromisoformat(iso)
+            except (TypeError, ValueError):
+                dt = None
+            if dt is not None:
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+        return self._first_seen.get(symbol)
+
+    def _refine_excursion_from_bars(self, positions, state=None) -> None:
         """Extend each open position's MFE/MAE with the true high/low from
         minute bars since the last scan. Best-effort: any failure leaves the
         polled numbers untouched, so this can never block or break the loop."""
@@ -586,7 +678,18 @@ class Runner:
             sign = -1 if "short" in side else 1
             # Scan from the last scan for this symbol, or the last 20 minutes
             # on first sight (covers the gap between fill and first poll).
+            # v1.17: never scan back past the fill. The old floor was
+            # `now - 20 minutes` on first sight, so a 10:00:45 entry pulled bars
+            # from 09:40 and scored the whole opening range as this position's
+            # excursion (2026-09-18 SNXX reported MAE -3.86% against a -1.50%
+            # bracket stop that was never breached; MARA -2.63% likewise).
+            # This is not cosmetic: `_check_trailing` arms off `mfe_pct`, so for
+            # a short, a pre-entry high could arm the trail off a price the
+            # position never experienced.
+            entry_dt = self._entry_dt(symbol, state)
             since = self._bar_scan_from.get(symbol) or (now - timedelta(minutes=20))
+            if entry_dt is not None and since < entry_dt:
+                since = entry_dt
             try:
                 bars = self.broker.get_minute_bars(symbol, since, now)
             except Exception as exc:  # noqa: BLE001
@@ -594,7 +697,17 @@ class Runner:
                 continue
             if not bars:
                 continue
-            self._bar_scan_from[symbol] = now - timedelta(minutes=2)  # overlap
+            if entry_dt is not None:
+                # Drop the bar straddling the fill: its high/low span prices
+                # from before we were in the trade. The 30s unrealized poll
+                # already covers that first partial minute.
+                bars = [b for b in bars if _bar_at_or_after(b, entry_dt)]
+                if not bars:
+                    continue
+            watermark = now - timedelta(minutes=2)  # overlap
+            if entry_dt is not None and watermark < entry_dt:
+                watermark = entry_dt
+            self._bar_scan_from[symbol] = watermark
             highs = [float(b.high) for b in bars if getattr(b, "high", None)]
             lows = [float(b.low) for b in bars if getattr(b, "low", None)]
             if not highs or not lows:

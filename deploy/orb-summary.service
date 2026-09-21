@@ -1,0 +1,9 @@
+[Unit]
+Description=Push the ORB bot's end-of-day summary to the phone
+OnFailure=orb-alert@%n.service
+
+[Service]
+Type=oneshot
+User=orb
+WorkingDirectory=/opt/orb-bot
+ExecStart=/opt/orb-bot/deploy/eod-summary.sh
