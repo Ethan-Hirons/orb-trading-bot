@@ -43,15 +43,24 @@ MARKET_HOLIDAYS = {
 }
 
 
+# Trading days Ethan deliberately did not run the bot (confirmed by him, not
+# inferred). Excluded from the lost-session report. Add a day here ONLY when
+# the choice was deliberate; an unexplained gap must keep failing.
+DAYS_OFF = {
+    "2026-09-11", "2026-09-15", "2026-09-16",   # confirmed 2026-09-22
+}
+
+
 def is_trading_day(d: date) -> bool:
     return d.weekday() < 5 and d.isoformat() not in MARKET_HOLIDAYS
 
 
 def missing_sessions(back_to: date, through: date, have: set[str]) -> list[str]:
-    """Trading days in [back_to, through] with no log on disk."""
+    """Trading days in [back_to, through] with no log on disk (DAYS_OFF excluded)."""
     out, cur = [], back_to
     while cur <= through:
-        if is_trading_day(cur) and cur.isoformat() not in have:
+        if (is_trading_day(cur) and cur.isoformat() not in have
+                and cur.isoformat() not in DAYS_OFF):
             out.append(cur.isoformat())
         cur = date.fromordinal(cur.toordinal() + 1)
     return out
@@ -187,7 +196,9 @@ def parse_session(path: Path) -> Session:
             s.flatten_verified = True
         if "BREAKER:" in ln:
             s.breaker = ln.split("BREAKER:", 1)[1].strip()
-        if "[ERROR]" in ln:
+        # v1.19: [CRITICAL] counts too. 2026-09-22 crash-looped 11 times on
+        # Alpaca 401s (09:25-09:43) and this check reported "no errors".
+        if "[ERROR]" in ln or "[CRITICAL]" in ln:
             s.errors.append(ln.strip())
         elif "[WARNING]" in ln:
             s.warnings.append(ln.strip())
@@ -402,6 +413,23 @@ def check_session(s: Session, trail_pct: float,
     else:
         out.append(Check("order management clean", PASS))
 
+    # 11. (v1.19) The process must start once and stay up. A crash loop before
+    # the open can eat the opening range; one after entries leaves positions
+    # managed only by their broker-side brackets.
+    crashes = [ln[11:19] for ln in s.lines if "FATAL: bot crashed" in ln]
+    starts = [ln[11:19] for ln in s.lines if "ORB bot starting" in ln]
+    if crashes:
+        auth = sum("401 Authorization" in ln for ln in s.lines)
+        out.append(Check("no crashes", FAIL,
+                         f"{len(crashes)} crash(es) {crashes[0]}-{crashes[-1]}, "
+                         f"{len(starts)} starts, last start {starts[-1] if starts else '?'}"
+                         + (f"; {auth} Alpaca 401 line(s) — check the API keys" if auth else "")))
+    elif len(starts) > 1:
+        out.append(Check("no crashes", WARN,
+                         f"{len(starts)} starts, no FATAL logged (restart?) at {', '.join(starts[1:4])}"))
+    else:
+        out.append(Check("no crashes", PASS))
+
     # 10. Errors are never routine.
     if s.errors:
         out.append(Check("no errors", FAIL, f"{len(s.errors)}: {s.errors[0][:110]}"))
@@ -571,8 +599,8 @@ def main() -> int:
             any_fail = True
             print(f"\n{label}: {len(missing)} trading day(s) with NO log at all "
                   f"— {', '.join(missing)}")
-            print("  Each one is a lost validation session. Market holidays are "
-                  "already excluded.")
+            print("  Each one is a lost validation session. Market holidays and "
+                  "DAYS_OFF are already excluded.")
 
     return 1 if any_fail else 0
 
