@@ -102,6 +102,15 @@ RE_EOD_POS = re.compile(
     r"PnL (?P<pnl>[-+][\d.]+) \((?P<pnlpct>[-+][\d.]+)%\)"
 )
 RE_DAYDONE = re.compile(r"Day done\. Trades: (?P<n>\d+) \| End equity: (?P<eq>[\d.]+)")
+# The 30s unrealized poll. The series bounds the whole book's drawdown, which
+# is what makes a single position's claimed MAE falsifiable (v1.18).
+RE_EQUITY = re.compile(r"Equity (?P<eq>[\d.]+) \| PnL")
+# Flatten retries are the routine working, not a carry. "BITO still open
+# (qty 61); re-closing." is logged BY the flatten loop; treating it as an
+# overnight carry made 2026-09-21 a FAIL on a session that flattened cleanly
+# 11 seconds later. A checker that cries wolf gets ignored, which is the exact
+# failure this module exists to prevent.
+RE_FLATTEN_RETRY = re.compile(r"Flatten: .* still open \(qty \d+\); re-closing")
 RE_ILLIQUID = re.compile(r"ILLIQUID skipped \d+ candidate\(s\)[^:]*: (?P<syms>.+)$")
 RE_TRAIL_ACT = re.compile(r"TRAIL ACTIVATED (?P<sym>[A-Z.]+)")
 RE_TRAIL_EXIT = re.compile(r"TRAIL EXIT (?P<sym>[A-Z.]+)")
@@ -135,6 +144,7 @@ class Session:
     illiquid: set[str] = field(default_factory=set)
     trail_activated: set[str] = field(default_factory=set)
     trail_exited: set[str] = field(default_factory=set)
+    equity: list[float] = field(default_factory=list)
     day_done: bool = False
     day_done_trades: int | None = None
     flatten_verified: bool = False
@@ -168,6 +178,8 @@ def parse_session(path: Path) -> Session:
             s.trail_activated.add(m["sym"])
         if m := RE_TRAIL_EXIT.search(ln):
             s.trail_exited.add(m["sym"])
+        if m := RE_EQUITY.search(ln):
+            s.equity.append(float(m["eq"]))
         if m := RE_DAYDONE.search(ln):
             s.day_done = True
             s.day_done_trades = int(m["n"])
@@ -180,6 +192,22 @@ def parse_session(path: Path) -> Session:
         elif "[WARNING]" in ln:
             s.warnings.append(ln.strip())
     return s
+
+
+def book_low_delta(s: Session) -> float | None:
+    """Worst the WHOLE book's unrealized P&L got, in dollars (v1.18).
+
+    The 30s poll logs account equity, which is start-of-day equity plus the
+    unrealized P&L of everything open (nothing is realized intraday — the bot
+    exits at the close). The first poll fires at the open, before any entry, so
+    min(series) - first is the deepest the book ever went underwater.
+
+    Reported as context, never as a pass/fail trigger: a single position's MAE
+    can legitimately exceed this if another position was up at the same moment.
+    """
+    if len(s.equity) < 2:
+        return None
+    return min(s.equity) - s.equity[0]
 
 
 def history_rows(day: str) -> list[dict]:
@@ -225,8 +253,9 @@ def check_session(s: Session, trail_pct: float,
 
     # 3. No position survived to the next session.
     carried = [ln for ln in s.lines
-               if "STILL OPEN" in ln.upper() or "still held" in ln
-               or "overnight" in ln.lower() and "[ERROR]" in ln]
+               if not RE_FLATTEN_RETRY.search(ln)
+               and ("STILL OPEN" in ln.upper() or "still held" in ln
+                    or "overnight" in ln.lower() and "[ERROR]" in ln)]
     out.append(Check("no overnight carry", FAIL if carried else PASS,
                      carried[0][:130] if carried else ""))
 
@@ -277,6 +306,44 @@ def check_session(s: Session, trail_pct: float,
                 f"(budget -{budget:.2f}%)")
     out.append(Check("stops held", FAIL if breaches else PASS,
                      "; ".join(breaches)))
+
+    # 5b. (v1.18) A position's adverse excursion cannot run past its own
+    #     bracket stop unless that stop actually fired. Exactly two things
+    #     produce this line, and both need a human:
+    #       (a) the excursion number is fiction — a pre-fill bar scan scoring
+    #           the opening range as the position's own MAE. This is what the
+    #           v1.17 clamp fixed, so seeing it again means the clamp is not
+    #           running on the host that traded. 2026-09-18 SNXX -3.86% and
+    #           MARA -2.63%; 2026-09-21 WBD -2.57% and INTC -1.68%, all
+    #           against a -1.50% stop that was never touched.
+    #       (b) the excursion is real and the stop-limit blew through without
+    #           filling — VALIDATION-GO-NOGO.md hard fail #3.
+    #     (a) corrupts the one statistic anybody would cite to argue for a
+    #     wider stop. (b) is a live-money risk-containment failure. Neither is
+    #     ordinary, and before this check nothing in the suite caught either.
+    impossible = []
+    for sym, exc in s.excursions.items():
+        ent = s.entries.get(sym)
+        if not ent or ent["stop_pct"] <= 0:
+            continue
+        budget = stop_budget_pct(ent["stop_pct"], stop_band_pct)
+        realized = s.eod.get(sym, {}).get("pnl_pct")
+        took_the_stop = (realized is not None
+                         and realized <= -ent["stop_pct"] * 0.95)
+        if exc["mae_pct"] < -budget and not took_the_stop:
+            exit_txt = f"{realized:+.2f}%" if realized is not None else "n/a"
+            impossible.append(
+                f"{sym} MAE {exc['mae_pct']:+.2f}% past a -{ent['stop_pct']:.2f}% "
+                f"stop that never fired (exit {exit_txt})")
+    if impossible:
+        detail = "; ".join(impossible)
+        low = book_low_delta(s)
+        if low is not None:
+            detail += (f" — but the whole book's worst unrealized point all "
+                       f"session was only {low:+.2f}")
+        out.append(Check("excursion within stop", FAIL, detail))
+    elif s.excursions:
+        out.append(Check("excursion within stop", PASS))
 
     # 6. Excursion tracking must bracket the realized result. The final price
     #    is by definition one of the observed prices, so MAE can never be

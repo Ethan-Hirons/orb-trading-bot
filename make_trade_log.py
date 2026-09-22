@@ -19,9 +19,19 @@ OUT = REPO / "trade_log.xlsx"
 #   START_EQUITY=25000 python make_trade_log.py
 START_EQUITY = float(os.environ.get("START_EQUITY", "10000"))
 
-# Exit types classified from logs (see bookkeeping.py); new trades left blank —
-# the daily recap fills them in, or run bookkeeping.py for the classification.
-EXIT_TYPES = {
+# Exit types are DERIVED from the logs at run time (see exit_types() below).
+#
+# This dict used to be the only source, hand-typed one trade at a time by
+# whoever ran the daily recap. Two consequences, both seen in practice: skip a
+# recap and the column silently goes blank for those trades (it was three
+# trades stale on 2026-09-21), and the classification drifts from
+# bookkeeping.py's, which is the one the trial totals are computed from.
+#
+# What survives here is the OVERRIDE map, for the cases derivation cannot
+# reach: days whose log is not on this laptop (the VPS is authoritative and
+# syncing is manual), and hand-annotated history like the v1.4 overnight bug.
+# Anything here wins over the derived value.
+EXIT_TYPES_OVERRIDE = {
     ("2026-07-09", "TQQQ"): "eod-flatten",
     ("2026-07-10", "TRAX"): "stop",
     ("2026-07-13", "NVVE"): "eod-flatten",
@@ -112,7 +122,48 @@ EXIT_TYPES = {
     ("2026-09-10", "ONDS"): "stop",
 }
 
+
+def exit_types(rows: list[dict]) -> dict[tuple[str, str], str]:
+    """(date, symbol) -> exit type, classified by bookkeeping.py's own rules.
+
+    Importing keeps ONE definition of what "trail" or "stop" means, so the
+    spreadsheet and the trial totals can never disagree. Best-effort: a day
+    with no log on disk, or a bookkeeping.py that fails to import, just falls
+    through to EXIT_TYPES_OVERRIDE rather than taking the build down.
+    """
+    derived: dict[tuple[str, str], str] = {}
+    try:
+        from bookkeeping import classify_exit, parse_day
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ! bookkeeping.py unavailable ({exc}); using overrides only")
+        return derived
+
+    by_day: dict[str, list[dict]] = {}
+    for row in rows:
+        by_day.setdefault(row["date"], []).append(row)
+
+    for path in sorted((REPO / "logs").glob("orb_*.log")):
+        try:
+            day = parse_day(path)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ! could not parse {path.name}: {exc}")
+            continue
+        for row in by_day.get(day["date"], []):
+            try:
+                derived[(row["date"], row["symbol"])] = classify_exit(row, day)
+            except Exception:  # noqa: BLE001
+                pass
+    return derived
+
+
 rows = list(csv.DictReader(open(REPO / "state" / "trade_history.csv", newline="")))
+
+EXIT_TYPES = exit_types(rows) | EXIT_TYPES_OVERRIDE
+_missing = [(r["date"], r["symbol"]) for r in rows
+            if (r["date"], r["symbol"]) not in EXIT_TYPES]
+print(f"exit types: {len(EXIT_TYPES)} known"
+      + (f", {len(_missing)} unclassified (no log on disk): "
+         + ", ".join(f"{d} {s}" for d, s in _missing[:6]) if _missing else ""))
 
 ARIAL = "Arial"
 F = lambda **kw: Font(name=ARIAL, **{"size": 10, **kw})
