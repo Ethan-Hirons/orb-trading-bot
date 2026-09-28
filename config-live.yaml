@@ -9,19 +9,25 @@
 #
 # Sizing maths, checked by orb_bot/preflight.py at every start:
 #   max_position_notional x min(max_trades_per_day, 3) must fit inside equity,
-#   so the bot never borrows intraday. At $2,000 equity: 3 x $600 = $1,800.
+#   so the bot never borrows intraday.
+#   Live equity measured 2026-09-27: $1,453.20. 3 x $450 = $1,350, which fits
+#   with room to spare. If you add funds, raise this -- preflight refuses to
+#   start rather than letting the bot borrow, so it fails loudly, not quietly.
 
 sizing:
-  # $700 x 3 = $2,100 against ~$2,000 of equity borrows. $600 does not.
-  max_position_notional: 600
-  # 1% of $2,000 = $20 risked per trade. Unchanged from paper deliberately:
-  # this is the number the paper trial's results are denominated in.
+  # $600 x 3 = $1,800 against $1,453.20 of equity borrows. $450 does not.
+  max_position_notional: 450
+  # Unchanged from paper deliberately: this is the number the paper trial's
+  # results are denominated in. Note the notional cap binds first -- a $450
+  # position on a 1.5% stop risks $6.75, about 0.46% of equity, not 1%. That
+  # is the same bind PREREG-2026-09-22 flagged at $700, only tighter.
   risk_per_trade_pct: 1.0
 
 risk:
-  # Paper runs 5%. Live runs 2%: about $40 on a $2,000 account, roughly two
-  # full stops. The trial's worst day was -1.02%; a -2% day means something is
-  # behaving differently from paper and the session should end while you look.
+  # Paper runs 5%. Live runs 2%: about $29 on a $1,453 account, roughly four
+  # full stops at this notional. The trial's worst day was -1.02%; a -2% day
+  # means something is behaving differently from paper and the session should
+  # end while you look at it.
   daily_max_loss_pct: 2.0
   daily_profit_target_pct: 0
   flatten_on_breaker: true
@@ -30,6 +36,6 @@ strategy:
   # Never on live. Shorting needs margin and a locate, and has never been
   # validated in this project.
   allow_shorts: false
-  # Paper allows 5. Three positions is the most $2,000 carries without
-  # borrowing, so a fourth could only ever fail on buying power.
+  # Three positions is the most the account carries without borrowing, so a
+  # fourth could only ever fail on buying power.
   max_trades_per_day: 3
