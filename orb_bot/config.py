@@ -169,6 +169,19 @@ class RuntimeConfig:
     # moves, and `_check_trailing` arms off that same peak. 0 = off (polled
     # values only, the pre-v1.13 behaviour).
     excursion_bar_seconds: int = 60
+    # v1.18: minute-bar extremes are only believed when the bar looks like real
+    # trading. A single odd-lot print on a thin name produces a bar whose
+    # high/low never reflected a tradeable price -- 2026-09-22 SNXX was scored
+    # at MAE -13.69% on a day the WHOLE book was never more than $11
+    # underwater. Bars with fewer than this many trades are ignored when
+    # taking extremes (0 = trust every bar, the pre-v1.18 behaviour).
+    excursion_min_trades: int = 3
+    # Adverse excursion beyond stop_pct * this multiple, on a position that is
+    # STILL OPEN, is arithmetically impossible: the broker-side stop would have
+    # filled. Such a reading is a data fault, not a risk event, and is dropped
+    # with a log line rather than poisoning MAE (and, through mfe_pct,
+    # `_check_trailing`). A genuine breach shows up as an actual stop fill.
+    excursion_max_adverse_stop_mult: float = 1.5
 
 
 @dataclass
@@ -207,10 +220,31 @@ def _load_credentials() -> Credentials:
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    """Load config.yaml + .env and return a validated Config object."""
+    """Load config.yaml + .env and return a validated Config object.
+
+    v1.18: `ORB_CONFIG` overrides the file. The live instance is a separate
+    checkout that must stay `git pull`-able, so it cannot carry a modified
+    config.yaml in its working tree -- it sets ORB_CONFIG=config-live.yaml
+    instead. Keys missing from that file fall back to config.yaml, so the two
+    instances can never silently diverge on anything the override does not
+    deliberately change.
+    """
+    override = os.environ.get("ORB_CONFIG") if path is None else None
     cfg_path = Path(path) if path else ROOT / "config.yaml"
     with open(cfg_path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
+
+    if override:
+        ov_path = Path(override)
+        if not ov_path.is_absolute():
+            ov_path = ROOT / ov_path
+        with open(ov_path, "r", encoding="utf-8") as f:
+            ov = yaml.safe_load(f) or {}
+        for section, values in ov.items():
+            if isinstance(values, dict) and isinstance(raw.get(section), dict):
+                raw[section] = {**raw[section], **values}
+            else:
+                raw[section] = values
 
     symbols = [str(s).upper() for s in raw.get("fallback_symbols", [])]
     if not symbols:

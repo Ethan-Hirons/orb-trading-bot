@@ -10,6 +10,8 @@ set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")/.."
 TODAY="${ORB_DATE:-$(date +%F)}"   # ORB_DATE lets you dry-run a past day
+TAG="ORB"
+[[ "${ORB_MODE:-paper}" == "live" ]] && TAG="ORB LIVE"
 LOG="logs/orb_${TODAY}.log"
 
 if [[ -f state/DISARMED ]]; then
@@ -17,7 +19,7 @@ if [[ -f state/DISARMED ]]; then
 fi
 
 if [[ ! -f "$LOG" ]]; then
-  deploy/notify.sh "ORB ${TODAY}: NO SESSION" \
+  deploy/notify.sh "${TAG} ${TODAY}: NO SESSION" \
     "No log at all for ${TODAY}. The session never ran. Check: systemctl status orb-bot" high
   exit 1
 fi
@@ -30,14 +32,14 @@ ERRORS="$(grep -cE '\[ERROR\]|\[CRITICAL\]' "$LOG" || true)"
 
 if [[ -z "$DAY_DONE" ]]; then
   # Ran but never reached the end: the 08-26/08-27 failure shape.
-  deploy/notify.sh "ORB ${TODAY}: SESSION DID NOT FINISH" \
+  deploy/notify.sh "${TAG} ${TODAY}: SESSION DID NOT FINISH" \
     "No 'Day done' line -- the bot was killed or crashed mid-session. CHECK FOR OPEN POSITIONS in Alpaca. Errors logged: ${ERRORS:-0}" \
     urgent
   exit 1
 fi
 
 if ! grep -qF 'Flatten verified' "$LOG"; then
-  deploy/notify.sh "ORB ${TODAY}: FLATTEN NOT VERIFIED" \
+  deploy/notify.sh "${TAG} ${TODAY}: FLATTEN NOT VERIFIED" \
     "Day done, but no 'Flatten verified' line. CHECK FOR OPEN POSITIONS in Alpaca." urgent
   exit 1
 fi
@@ -46,7 +48,7 @@ RESULT="${DAY_DONE#*Day done. }"
 PRIORITY=default
 [[ "${ERRORS:-0}" != "0" ]] && PRIORITY=high
 
-deploy/notify.sh "ORB ${TODAY}: ${RESULT}" \
+deploy/notify.sh "${TAG} ${TODAY}: ${RESULT}" \
   "${SUMMARY}
 
 errors/criticals in log: ${ERRORS:-0}" "$PRIORITY"

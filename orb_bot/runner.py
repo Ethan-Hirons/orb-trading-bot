@@ -52,6 +52,20 @@ MARKET_OPEN = dtime(9, 30)
 MAX_CONSECUTIVE_ERRORS = 10
 
 
+def _bar_is_liquid(bar, min_trades: int) -> bool:
+    """True if `bar` carries enough trades for its high/low to be a real price.
+
+    Missing trade_count means the feed did not say, so the bar is kept -- this
+    filter only ever acts on evidence, never on an absence of it."""
+    n = getattr(bar, "trade_count", None)
+    if n is None:
+        return True
+    try:
+        return int(n) >= min_trades
+    except (TypeError, ValueError):
+        return True
+
+
 def _bar_at_or_after(bar, cutoff: datetime) -> bool:
     """True if `bar` opened at or after `cutoff` (v1.17 excursion clamp).
 
@@ -120,6 +134,10 @@ class Runner:
         # it and exits through the normal flatten path, so `systemctl stop`
         # can no longer leave a position open overnight.
         self._stop_requested = False
+        # v1.18: log each excursion data-quality complaint once per symbol per
+        # session; the loop runs every 30s and would otherwise bury the log.
+        self._thin_bar_warned: set[str] = set()
+        self._impossible_mae_warned: set[str] = set()
         # v1.12: opening relative volume. `_or_relvol_avg` is the per-symbol
         # BASELINE (own average opening-window volume), warmed outside the
         # entry path by `_prefetch_rel_volume`. `_or_relvol` is the computed
@@ -708,6 +726,29 @@ class Runner:
             if entry_dt is not None and watermark < entry_dt:
                 watermark = entry_dt
             self._bar_scan_from[symbol] = watermark
+
+            # v1.18 FILTER 1 -- believe a bar's extremes only if the bar looks
+            # like real trading. One odd-lot print on a thin name makes a bar
+            # whose high/low was never a tradeable price. 2026-09-22 SNXX was
+            # scored MAE -13.69% (-95.90) on a session whose deepest whole-book
+            # unrealized was -11.23; the stop at -1.5% never fired because the
+            # price it claims never happened.
+            min_trades = int(getattr(self.cfg.runtime, "excursion_min_trades", 0))
+            if min_trades > 0:
+                solid = [b for b in bars if _bar_is_liquid(b, min_trades)]
+                dropped = len(bars) - len(solid)
+                if solid:
+                    if dropped and symbol not in self._thin_bar_warned:
+                        self._thin_bar_warned.add(symbol)
+                        self.log.info(
+                            "EXCURSION %s: ignoring %d thin bar(s) (<%d trades) "
+                            "when taking high/low.", symbol, dropped, min_trades,
+                        )
+                    bars = solid
+                elif dropped:
+                    # Every bar was thin: no opinion is better than a wrong one.
+                    continue
+
             highs = [float(b.high) for b in bars if getattr(b, "high", None)]
             lows = [float(b.low) for b in bars if getattr(b, "low", None)]
             if not highs or not lows:
@@ -720,11 +761,39 @@ class Runner:
             best_pnl = (best - entry) * qty * sign
             worst_pnl = (worst - entry) * qty * sign
 
+            # v1.18 FILTER 2 -- an open position cannot have traded far below
+            # its own stop; the broker-side stop would have filled. A reading
+            # past that bound is a data fault, not a risk event. Dropping it
+            # keeps MAE honest AND protects `_check_trailing`, which arms off
+            # mfe_pct. A REAL breach still surfaces the only way it can: an
+            # actual stop fill, and a realised loss bigger than intended.
+            mult = float(
+                getattr(self.cfg.runtime, "excursion_max_adverse_stop_mult", 0) or 0
+            )
+            stop_pct = abs(float(getattr(self.cfg.exits, "stop_pct", 0) or 0))
+            if mult > 0 and stop_pct > 0:
+                floor_pct = -stop_pct * mult
+                if worst_pct < floor_pct:
+                    if symbol not in self._impossible_mae_warned:
+                        self._impossible_mae_warned.add(symbol)
+                        self.log.warning(
+                            "EXCURSION %s: DROPPED an impossible adverse reading "
+                            "%+.2f%% -- past the %.2f%% stop by more than %.1fx "
+                            "while the position is still open, so the price never "
+                            "traded. Bad print in the %s feed, not a stop failure.",
+                            symbol, worst_pct, -stop_pct, mult,
+                            getattr(self.cfg.runtime, "data_feed", "?"),
+                        )
+                    worst_pct = None
+                    worst_pnl = None
+
             e = self._excursion.get(symbol)
             if e is None:
                 self._excursion[symbol] = {
-                    "mfe": best_pnl, "mae": worst_pnl,
-                    "mfe_pct": best_pct, "mae_pct": worst_pct,
+                    "mfe": best_pnl,
+                    "mae": worst_pnl if worst_pnl is not None else 0.0,
+                    "mfe_pct": best_pct,
+                    "mae_pct": worst_pct if worst_pct is not None else 0.0,
                 }
                 continue
             if best_pct > e["mfe_pct"]:
@@ -735,7 +804,7 @@ class Runner:
                         symbol, e["mfe_pct"], best_pct,
                     )
                 e["mfe"], e["mfe_pct"] = best_pnl, best_pct
-            if worst_pct < e["mae_pct"]:
+            if worst_pct is not None and worst_pct < e["mae_pct"]:
                 e["mae"], e["mae_pct"] = worst_pnl, worst_pct
 
     def _check_time_stop(self, state: DailyState) -> None:

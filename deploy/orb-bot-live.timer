@@ -1,0 +1,12 @@
+[Unit]
+Description=Start the LIVE ORB session on market weekdays
+
+[Timer]
+# Same 09:25 ET as paper. If nobody armed it by hand, start.sh exits cleanly
+# and pushes a notification -- a skipped live day is a normal outcome.
+OnCalendar=Mon-Fri 09:25
+Persistent=false
+Unit=orb-bot-live.service
+
+[Install]
+WantedBy=timers.target

@@ -22,6 +22,7 @@ import signal
 import sys
 import traceback
 
+from orb_bot import preflight
 from orb_bot.config import load_config
 from orb_bot.logutil import get_logger
 from orb_bot.runner import Runner
@@ -60,6 +61,10 @@ def main() -> None:
     cfg = load_config()
     runner = Runner(cfg)
     _install_signal_handlers(runner)
+    # v1.18: refuse to trade rather than trade wrong. Raises SystemExit(2) on
+    # any blocking problem -- wrong credentials for the mode, a blocked
+    # account, sizing that would borrow, a live run with no confirmation file.
+    preflight.enforce(cfg, runner.broker, get_logger())
     runner.run()
 
 
