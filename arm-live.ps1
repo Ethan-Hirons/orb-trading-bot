@@ -11,16 +11,18 @@
 
 .EXAMPLE
   .\arm-live.ps1            # arm today
-  .\arm-live.ps1 -Off       # cancel today
+  .\arm-live.ps1 -Next      # arm the next trading day (use the evening before)
+  .\arm-live.ps1 -Off       # cancel
   .\arm-live.ps1 -Status    # what is it going to do?
 #>
-param([switch]$Off, [switch]$Status)
+param([switch]$Next, [switch]$Off, [switch]$Status)
 
 $Server = "root@157.180.31.101"
 $Live   = "/opt/orb-bot-live"
 
 if     ($Status) { $cmd = "arm.py --status" }
 elseif ($Off)    { $cmd = "arm.py --off" }
+elseif ($Next)   { $cmd = "arm.py --next" }
 else             { $cmd = "arm.py" }
 
 ssh $Server "cd $Live && sudo -u orb .venv/bin/python $cmd"
