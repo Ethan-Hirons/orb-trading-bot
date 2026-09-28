@@ -2,6 +2,36 @@
 
 _Opened 2026-09-27._
 
+## This file does not replace `PREREG-2026-09-22.md`
+
+You already pre-registered **H1** (require a news-confirmed direction) and
+**H2** (stop at the opening-range low) there, with sim-first testing on an
+untouched window and four pass criteria each. That document governs those two
+hypotheses and its rules stand unchanged — sim first, once, no re-cuts.
+
+What follows are **additions**, numbered E-something so they never get
+confused with H1/H2, and they are deliberately a different kind of thing:
+E1 and E3 are costs and measurements rather than strategy parameters, which
+is why they can be tested on paper directly without a sim run.
+
+`loss_anatomy.py` on the current 59-trade cut, for context — it is the
+strongest support H1 has:
+
+| bucket | n | stop rate | mean R | net $ |
+|---|---|---|---|---|
+| **stock / news-confirmed** | 17 | 41% | **+0.21** | **+31.48** |
+| stock / no directional news | 13 | 69% | −0.79 | −105.58 |
+| leveraged ETP / news-confirmed | 2 | 50% | −0.57 | −11.93 |
+| **leveraged ETP / no directional news** | 18 | 61% | **−0.43** | **−79.07** |
+| crypto ETF / news-confirmed | 2 | 50% | −0.09 | −1.97 |
+| crypto ETF / no directional news | 7 | 29% | −0.19 | −13.01 |
+
+One positive bucket out of six, and the losses concentrate in leveraged ETPs
+taken with no directional news. Seventeen trades. That is the same size of
+slice that produced every result this project has already had reversed on it,
+which is exactly why H1 goes to the sim on an untouched window before it goes
+anywhere near a config.
+
 ## The design
 
 Two instances, two accounts, one codebase:
@@ -143,3 +173,5 @@ written down why it was passed over.
 | date | change | instance | n | result | decision |
 |---|---|---|---|---|---|
 | 2026-09-27 | (baseline) | paper | 100 | −0.23/trade | — |
+| | H1 news-confirmed bias | sim first | — | not yet run | see PREREG-2026-09-22 |
+| | H2 opening-range stop | sim first | — | not yet run | see PREREG-2026-09-22 |
