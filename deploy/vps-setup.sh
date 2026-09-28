@@ -36,7 +36,11 @@ python3 -m venv "$APP/.venv"
 "$APP/.venv/bin/pip" install -q --upgrade pip
 "$APP/.venv/bin/pip" install -q -r "$APP/requirements.txt"
 # point the launcher at the venv interpreter
-sed -i "s|^python3 arm.py|$APP/.venv/bin/python arm.py|; s|^exec python3 -u run.py|exec $APP/.venv/bin/python -u run.py|" "$APP/deploy/start.sh"
+# 2026-09-28: start.sh now resolves $APP/.venv/bin/python itself, so there is
+# nothing to patch here any more. The old sed edited a TRACKED file, which
+# made every later `git pull` conflict on it -- and resolving that conflict
+# by taking the repo version silently removed the interpreter. Left as a
+# note so nobody reintroduces it.
 chmod +x "$APP"/deploy/*.sh
 
 echo "==> 6/8  phone alerts"
