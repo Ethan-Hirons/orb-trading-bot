@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily LIVE ORB result to the phone, after the close
+
+[Timer]
+OnCalendar=Mon-Fri 16:07
+Persistent=false
+Unit=orb-summary-live.service
+
+[Install]
+WantedBy=timers.target

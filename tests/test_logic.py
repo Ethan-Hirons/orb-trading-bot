@@ -666,6 +666,8 @@ def test_excursion_from_minute_bars():
         r._last_bar_excursion = 0.0
         r._bar_scan_from = {}
         r._first_seen = {}
+        r._thin_bar_warned = set()
+        r._impossible_mae_warned = set()
         r.log = logging.getLogger("test-exc")
         return r
 
@@ -791,6 +793,8 @@ def test_excursion_never_scans_before_the_fill():
         r._last_bar_excursion = 0.0
         r._bar_scan_from = {}
         r._first_seen = {}
+        r._thin_bar_warned = set()
+        r._impossible_mae_warned = set()
         r.log = logging.getLogger("test-exc-clamp")
         return r
 
@@ -908,6 +912,109 @@ def test_interruptible_sleep_returns_early():
     assert _time.monotonic() - t0 >= 0.19
 
     print("PASS test_interruptible_sleep_returns_early")
+
+
+def test_excursion_rejects_impossible_and_thin_bar_readings():
+    """v1.18 REGRESSION (2026-09-22 SNXX).
+
+    SNXX was scored MAE -95.90 (-13.69%) against a -1.50% stop that never
+    fired and an exit at -1.60%. The account's own 30s equity poll settles it:
+    the deepest the WHOLE book went underwater that session was -11.23, so a
+    single position at -95.90 never happened. The price came from the IEX
+    minute-bar feed, not from the market.
+
+    Two independent guards, because the bad data has two shapes:
+      1. the bar is a lone odd-lot print -> too few trades to be a real price;
+      2. the reading is past the stop while the position is STILL OPEN ->
+         arithmetically impossible, the broker stop would have filled.
+    This matters beyond reporting: `_check_trailing` arms off mfe_pct.
+    """
+    import logging
+    from datetime import datetime, timedelta, timezone
+
+    from orb_bot.runner import Runner
+
+    class FakePos:
+        def __init__(self, symbol, entry, side, qty=10):
+            self.symbol, self.avg_entry_price, self.side = symbol, entry, side
+            self.qty = qty
+
+    class FakeBar:
+        def __init__(self, high, low, timestamp=None, trade_count=50):
+            self.high, self.low = high, low
+            self.timestamp, self.trade_count = timestamp, trade_count
+
+    class FakeBroker:
+        def __init__(self, bars):
+            self.bars = bars
+
+        def list_positions(self):
+            return []
+
+        def get_minute_bars(self, symbol, start, end):
+            return self.bars.get(symbol, [])
+
+    now = datetime.now(timezone.utc)
+    entry_dt = now - timedelta(minutes=5)
+
+    def make_runner(bars, polled):
+        r = Runner.__new__(Runner)
+        r.cfg = _dummy_config()
+        r.cfg.runtime.excursion_bar_seconds = 60
+        r.cfg.runtime.excursion_min_trades = 3
+        r.cfg.runtime.excursion_max_adverse_stop_mult = 1.5
+        r.cfg.exits.stop_pct = 1.5
+        r.broker = FakeBroker(bars)
+        r._excursion = dict(polled)
+        r._last_bar_excursion = 0.0
+        r._bar_scan_from = {}
+        r._first_seen = {"SNXX": entry_dt}
+        r._thin_bar_warned = set()
+        r._impossible_mae_warned = set()
+        r.log = logging.getLogger("test-exc-sanity")
+        return r
+
+    pos = [FakePos("SNXX", 20.01, "long", qty=35)]
+    polled = {"SNXX": {"mfe": 3.15, "mae": -2.10,
+                       "mfe_pct": 0.45, "mae_pct": -0.30}}
+
+    # 1. The real SNXX shape: a liquid bar at -0.30%, and a 17.27 low that
+    #    would be -13.69%. Past 1.5 x the 1.50% stop -> dropped.
+    r = make_runner({"SNXX": [
+        FakeBar(20.10, 19.95, now - timedelta(minutes=4), trade_count=120),
+        FakeBar(20.05, 17.27, now - timedelta(minutes=3), trade_count=90),
+    ]}, polled)
+    r._refine_excursion_from_bars(pos, None)
+    e = r._excursion["SNXX"]
+    assert e["mae_pct"] == -0.30, e      # polled value survives untouched
+    assert e["mae"] == -2.10, e
+
+    # 2. Same low, but inside the plausible band (-2.0%, under 1.5 x stop):
+    #    that IS believable and must still be recorded.
+    r = make_runner({"SNXX": [
+        FakeBar(20.05, 19.61, now - timedelta(minutes=3), trade_count=90),
+    ]}, polled)
+    r._refine_excursion_from_bars(pos, None)
+    assert r._excursion["SNXX"]["mae_pct"] < -1.9, r._excursion
+
+    # 3. Thin-bar guard, independent of the stop bound: a one-print bar's
+    #    high must not lift MFE (this is what arms the trail).
+    r = make_runner({"SNXX": [
+        FakeBar(19.99, 19.90, now - timedelta(minutes=4), trade_count=80),
+        FakeBar(25.00, 19.95, now - timedelta(minutes=3), trade_count=1),
+    ]}, polled)
+    r._refine_excursion_from_bars(pos, None)
+    assert r._excursion["SNXX"]["mfe_pct"] < 0.5, r._excursion
+
+    # 4. A feed that reports no trade_count at all must not be filtered away:
+    #    act on evidence, never on its absence.
+    r = make_runner({"SNXX": [
+        FakeBar(20.40, 19.95, now - timedelta(minutes=3), trade_count=None),
+    ]}, polled)
+    r._refine_excursion_from_bars(pos, None)
+    assert r._excursion["SNXX"]["mfe_pct"] > 1.0, r._excursion
+
+    print("PASS test_excursion_rejects_impossible_and_thin_bar_readings")
 
 
 def run_all():

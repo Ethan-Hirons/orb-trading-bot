@@ -1,0 +1,43 @@
+[Unit]
+Description=ORB trading bot -- LIVE MONEY (daily session)
+After=network-online.target
+Wants=network-online.target
+OnFailure=orb-alert@%n.service
+
+# Crash-loop guard. MUST be in [Unit]; systemd ignores these in [Service].
+StartLimitIntervalSec=3600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=orb
+WorkingDirectory=/opt/orb-bot-live
+
+# ORB_MODE=live changes two things: deploy/start.sh refuses to self-arm (a
+# human runs arm.py or there is no session), and orb_bot/preflight.py applies
+# the live checks and refuses to start on any mismatch.
+Environment=ORB_MODE=live
+Environment=ORB_CONFIG=config-live.yaml
+ExecStart=/opt/orb-bot-live/deploy/start.sh
+
+RuntimeMaxSec=27000
+
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+# Live does NOT auto-restart. A paper instance that crashes and comes back has
+# lost nothing; a live one that crash-loops is placing real orders from an
+# unknown state. A human looks at it.
+Restart=no
+
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/orb-bot-live/logs /opt/orb-bot-live/state
+
+[Install]
+WantedBy=multi-user.target
