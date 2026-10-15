@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parent.parent
 @dataclass
 class ScreenerConfig:
     enabled: bool = True
-    top_most_actives: int = 20
-    top_movers: int = 20
-    max_candidates: int = 40
+    top_most_actives: int = 50
+    top_movers: int = 50
+    max_candidates: int = 60
     min_price: float = 5.0
     max_price: float = 400.0
     min_abs_gap_pct: float = 2.0
@@ -26,7 +26,7 @@ class ScreenerConfig:
     # v1.11 liquidity filter: previous-day share volume floor. Thin names
     # give bad fills, unfillable exits, and overnight leftovers (AHCO
     # 2026-08-04/05 bled -5.4% because its close couldn't fill). 0 = off.
-    min_prev_day_volume: float = 2_000_000
+    min_prev_day_volume: float = 500_000
 
 
 @dataclass
@@ -62,6 +62,15 @@ class SelectionConfig:
     max_correlation: float = 0.0
     max_per_cluster: int = 1
     correlation_lookback_days: int = 30
+    # v1.16: max leveraged/inverse ETPs held per session. The underlying
+    # cap sees SOXL/SOXS/SNXX/TSLL as four bets and the correlation cap
+    # only catches them when their daily returns line up; both let a
+    # session fill entirely with 3x products, whose gaps clear every
+    # volatility gate for leverage reasons rather than informational
+    # ones. 0 = off.
+    # Off by default: see config.yaml for why (measured at -1.80 and zero
+    # effect on the negative-day count; unpre-registered). 0 = off.
+    max_leveraged_etps: int = 0
 
 
 @dataclass
