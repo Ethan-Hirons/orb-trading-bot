@@ -97,6 +97,49 @@ def cap_per_underlying(
     return kept
 
 
+# ---------- leveraged/inverse ETP cap (v1.16) ----------
+# 2026-10-15: diversity audit. SOXS was targeted in 24 of 59 sessions, SNXX
+# 23, SOXL 21, TSLL 13 -- and on 10-12 the day's whole target list was
+# VEEA + SOXS, on 10-15 it was SOXL + SOXS together. These clear the
+# volatility gate because 3x leverage multiplies the underlying's move, not
+# because anything informational happened, and their news coverage is empty
+# (every one of the nine SOXS trades logged "0 articles"), so bias stays
+# "any" and direction is a coin flip. cap_per_underlying only groups ETPs
+# that name the SAME underlying; cap_correlated only catches them when the
+# measured returns line up. Neither stops a session going all-ETP.
+
+
+def cap_leveraged_etps(
+    targets: list[Target],
+    asset_names: dict[str, str],
+    cap: int,
+    taken_names: dict[str, str] | None = None,
+) -> list[Target]:
+    """Keep at most `cap` leveraged/inverse ETPs (targets must be score-sorted,
+    so the strongest survives). `taken_names` = asset names of targets or
+    positions already held, which count against the cap. cap <= 0 disables."""
+    if cap <= 0:
+        return targets
+    def _is_etp(sym: str, name: str | None) -> bool:
+        return bool(name and _LEVERAGED_NAME.search(name))
+    held = sum(
+        1 for sym, name in (taken_names or {}).items() if _is_etp(sym, name)
+    )
+    kept: list[Target] = []
+    for t in targets:
+        if _is_etp(t.symbol, asset_names.get(t.symbol)):
+            if held >= cap:
+                log.info(
+                    "LEVERAGED-ETP %s: already holding %d leveraged/inverse "
+                    "product(s) (cap %d); skipping",
+                    t.symbol, held, cap,
+                )
+                continue
+            held += 1
+        kept.append(t)
+    return kept
+
+
 # ---------- correlated-theme grouping (v1.14) ----------
 # 2026-08-21 and 08-24: the same-underlying cap above did its job and still let
 # through five simultaneous crypto bets (MARA, CONL, ETHA, BITO, IBIT on 08-21;
@@ -294,6 +337,13 @@ def build_targets(
     targets = cap_correlated(
         targets, daily_returns or {}, sel.max_correlation,
         sel.max_per_cluster, taken_returns,
+    )
+    # v1.16: one leveraged/inverse ETP per session. Runs last of the three
+    # caps so a dropped ETP frees its slot for an uncorrelated common stock
+    # rather than shrinking the day's list.
+    targets = cap_leveraged_etps(
+        targets, asset_names or {}, sel.max_leveraged_etps,
+        {s: (asset_names or {}).get(s) for s in (taken_underlyings or set())},
     )
     chosen = targets[: sel.max_targets]
     for t in chosen:

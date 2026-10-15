@@ -36,12 +36,32 @@ except Exception:  # older/newer SDK layout
 # shares like BRK.B are unaffected.
 NON_COMMON_SUFFIXES = {"WS", "W", "WT", "U", "R", "RT"}
 
+# v1.16 (2026-10-15): the dotted check below never fired on the NASDAQ
+# convention, where the suffix is the FIFTH LETTER of an undotted ticker --
+# DAICW, ASTLW, OPENW, SEATW are warrants; HUBCZ, AMPGZ are misc/when-issued.
+# Those names dominated the screener feed: across 59 sessions, 2,306 illiquid
+# rejections, 62% of them W/R/U/Z-suffixed. Because the most-actives and
+# movers pulls are capped (top_most_actives + top_movers), every warrant in
+# the feed DISPLACED a real tradeable name before the liquidity floor ever
+# ran. The surviving pool collapsed to a median of 6 candidates a session,
+# which is why the bot retraded the same handful all quarter (INTC targeted
+# in 30/59 sessions, SOXS 24, SNXX 23, SOXL 21, NOK 19) and why 49% of all
+# 130 trades landed in just 8 names.
+#
+# NASDAQ fifth-letter suffixes: W = warrant, R = right, U = unit,
+# Z = miscellaneous. The convention is EXACTLY five characters, so the check
+# is length-pinned: four-letter names (SNOW, WOLF, FNGU, SOXL) and
+# five-letter commons that end in another letter (GOOGL) are untouched.
+_FIFTH_LETTER_NON_COMMON = {"W", "R", "U", "Z"}
+
 
 def is_common_stock_symbol(symbol: str) -> bool:
-    if "." in symbol:
-        suffix = symbol.rsplit(".", 1)[1].upper()
-        if suffix in NON_COMMON_SUFFIXES:
-            return False
+    sym = symbol.upper()
+    if "." in sym:
+        suffix = sym.rsplit(".", 1)[1]
+        return suffix not in NON_COMMON_SUFFIXES
+    if len(sym) == 5 and sym[-1] in _FIFTH_LETTER_NON_COMMON:
+        return False
     return True
 
 
@@ -159,9 +179,13 @@ class Screener:
             self._illiquid_today = set()
 
         sticky_skips: list[str] = []
+        non_common: list[str] = []
         for sym in symbols:
             if not is_common_stock_symbol(sym):
-                continue  # warrants/units/rights: illiquid, often untradeable
+                # warrants/units/rights: illiquid, often untradeable, and they
+                # crowd real names out of the capped feed pulls (v1.16).
+                non_common.append(sym)
+                continue
             if sym in self._illiquid_today:
                 sticky_skips.append(sym)
                 continue
@@ -214,6 +238,11 @@ class Screener:
                 "ILLIQUID skipped %d candidate(s) (prev-day volume < %s): %s",
                 len(illiquid), f"{sc.min_prev_day_volume:,.0f}",
                 ", ".join(sorted(illiquid)),
+            )
+        if non_common:
+            log.info(
+                "NON-COMMON skipped %d warrant/right/unit ticker(s): %s",
+                len(non_common), ", ".join(sorted(non_common)),
             )
         if sticky_skips:
             log.info(

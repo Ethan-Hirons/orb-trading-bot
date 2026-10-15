@@ -16,9 +16,12 @@ fallback_symbols:
 # --- Pre-market screener: finds volatile movers to trade ---
 screener:
   enabled: true
-  top_most_actives: 20      # pull this many most-active stocks
-  top_movers: 20            # pull this many top gainers + losers
-  max_candidates: 40        # cap the combined candidate pool
+  top_most_actives: 50      # v1.16: was 20. The feed pull is the real
+                            # ceiling on diversity -- warrants used to eat
+                            # these slots; now that they're filtered, a
+                            # wider pull reaches further down the tape.
+  top_movers: 50            # pull this many top gainers + losers (v1.16: was 20)
+  max_candidates: 60        # cap the combined candidate pool (v1.16: was 40)
   min_price: 5              # skip penny stocks
   max_price: 400            # skip names too expensive for a small account
   min_abs_gap_pct: 2.0      # only keep names already moving >= this % (volatility)
@@ -30,7 +33,14 @@ screener:
   # candidates on 08-11 and left one target). Thin names give bad fills and
   # unfillable exits (AHCO 08-04/05 bled -5.4% overnight; CWVX needed 3 entry
   # attempts + partial fill). 0 = off.
-  min_prev_day_volume: 2000000
+  # v1.16 (2026-10-15): 2,000,000 was a large-cap gate, not a liquidity
+  # floor. What cleared it AND the $5-400 band AND a >=2% gap was a
+  # structurally tiny set -- 3x ETFs plus a few megacaps -- so the bot
+  # retraded them daily and every one of the six repeat names is net
+  # negative since 2026-09-18 (-121 combined). 500k still excludes the
+  # genuinely untradeable, and max_spread_pct (0.5%) remains the real
+  # per-entry fill guard that the AHCO/CWVX incidents actually needed.
+  min_prev_day_volume: 500000
 
 # --- News scan: informs direction and ranking; rescanned all day ---
 news:
@@ -56,6 +66,21 @@ selection:
   # set one, which caused most skipped breakouts). Set e.g. 10.0 to restore
   # gap-based bias for big gappers only; 0 = off (bias comes from news alone).
   gap_bias_min_pct: 0
+  # v1.16: at most this many leveraged/inverse ETPs per session. The
+  # mechanism is real -- SOXS was a target in 24 of 59 sessions, SOXL 21,
+  # SNXX 23; they clear every volatility gate because 3x leverage multiplies
+  # the move, and they carry no news (all nine SOXS trades logged
+  # "0 articles") so bias stays "any" and direction is a coin flip.
+  #
+  # DELIBERATELY OFF (2026-10-15). Measured on the booked trades, a cap of 1
+  # would have dropped 12 trades across 10 sessions for a total of -1.80 and
+  # changed the negative-day count by ZERO (28/47 either way) -- consistent
+  # with the already-rejected hypothesis "crypto/leveraged worse, all die
+  # ex-top2" in exit-structure.md. Turning it on would also be an
+  # unpre-registered strategy parameter, which breaks the paper/live
+  # comparability rule in config-live.yaml. The code is in place and tested;
+  # set this to 1 only with pre-committed criteria. 0 = off.
+  max_leveraged_etps: 0
   # v1.7: one bet per underlying — leveraged ETF twins (SMCX/SMCL/SNXX all
   # track SMCI) count as the same trade; keep only the strongest. 0 = off.
   max_per_underlying: 1
