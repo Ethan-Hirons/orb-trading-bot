@@ -1,0 +1,107 @@
+﻿100 trades in trade_history.csv; feed=sip, min-trades=3
+replaying 38 from 2026-08-19 onward (62 excluded as a different config regime)
+
+  WHY THE FILTER: the 100-trade history is not one strategy. Up to 2026-07-31
+  the bot ran stop 3.0 with a 3-5% take-profit and a 180-minute time stop;
+  stop became 1.5 and the target came off on 08-03; the entry window dropped
+  180 -> 60 around 08-06; and the trail did not actually work until 08-19.
+  Replaying TODAY's rules against those trades compares two different bots.
+
+  WARNING, and it cuts against me: P&L by start date is
+     from 08-03  n=62  -0.85/trade
+     from 08-19  n=38  -0.12/trade
+     from 08-25  n=23  +0.84/trade
+  Picking the window with the best number is the subset trap this project has
+  been burned by seven times. 08-19 is chosen because that is when the trail
+  began working - a MECHANICAL reason - not because of its P&L. The P&L of any
+  chosen window is NOT evidence of an edge; n=38 at -0.12 is still zero.
+
+  bars 1/38  SOXS 2026-08-19   
+  bars 2/38  AMLX 2026-08-19   
+  bars 3/38  BITO 2026-08-20   
+  bars 4/38  MARA 2026-08-21   
+  bars 5/38  CONL 2026-08-21   
+  bars 6/38  TSLL 2026-08-21   
+  bars 7/38  MRNA 2026-08-21   
+  bars 8/38  ETHA 2026-08-21   
+  bars 9/38  BITO 2026-08-21   
+  bars 10/38  IBIT 2026-08-21   
+  bars 11/38  SOXS 2026-08-24   
+  bars 12/38  BMNR 2026-08-24   
+  bars 13/38  ETHA 2026-08-24   
+  bars 14/38  IBIT 2026-08-24   
+  bars 15/38  BITO 2026-08-24   
+  bars 16/38  NVDA 2026-08-25   
+  bars 17/38  SNXX 2026-08-26   
+  bars 18/38  DKS 2026-08-26   
+  bars 19/38  PATH 2026-08-26   
+  bars 20/38  DYN 2026-09-08   
+  bars 21/38  TSLL 2026-09-08   
+  bars 22/38  IRD 2026-09-09   
+  bars 23/38  INTC 2026-09-09   
+  bars 24/38  TSLL 2026-09-10   
+  bars 25/38  SOXS 2026-09-10   
+  bars 26/38  ONDS 2026-09-10   
+  bars 27/38  MARA 2026-09-18   
+  bars 28/38  SNXX 2026-09-18   
+  bars 29/38  IBIT 2026-09-18   
+  bars 30/38  INTC 2026-09-21   
+  bars 31/38  BITO 2026-09-21   
+  bars 32/38  WBD 2026-09-21   
+  bars 33/38  SNXX 2026-09-22   
+  bars 34/38  XNDU 2026-09-22   
+  bars 35/38  SOXL 2026-09-22   
+  bars 36/38  SOXS 2026-09-23   
+  bars 37/38  INTC 2026-09-24   
+  bars 38/38  SNXX 2026-09-24   
+  38 of 38 trades have bars
+  38 have a logged entry time; 0 replay from the open (their result is less trustworthy)
+
+=== HARNESS VALIDATION ===
+Replaying the LIVE rules (stop 1.5, trail 1.25 arming at 1.25) and
+comparing with the P&L the bot actually booked.
+
+  touch   replay     -4.02   actual     -4.66   diff    +0.64   (on 38 of 38 trades)
+  close   replay    +14.78   actual     -4.66   diff   +19.44   (on 38 of 38 trades)
+
+  A large gap here means the replay does not model what the bot does
+  (entry timing, partial fills, the IEX/SIP difference) and NOTHING
+  below should be believed until it is explained.
+
+==============================================================================
+ROBUSTNESS ù the tests that killed the last nine findings
+==============================================================================
+
+  LIVE (stop 1.5 + trail)
+    touch  total    -4.02 (vs live   +0.00)  ex-top2   -38.22  ex-top3   -51.86  t=-0.07
+           half1   +0.00   half2   +0.00  ** SIGN FLIPS **
+    close  total   +14.78 (vs live   +0.00)  ex-top2   -19.42  ex-top3   -34.80  t=+0.25
+           half1   +0.00   half2   +0.00  ** SIGN FLIPS **
+
+  NO TRAIL (paper)
+    touch  total   +59.71 (vs live  +63.74)  ex-top2   -47.71  ex-top3   -88.33  t=+0.56
+           half1  +23.45   half2  +40.28  BOTH SAME SIGN
+    close  total   +94.59 (vs live  +79.81)  ex-top2   -12.84  ex-top3   -53.45  t=+0.89
+           half1  +21.18   half2  +58.63  BOTH SAME SIGN
+
+  trail 0.75 arm 0.75
+    touch  total   +22.30 (vs live  +26.32)  ex-top2   -11.87  ex-top3   -27.93  t=+0.41
+           half1  +44.99   half2  -18.66  ** SIGN FLIPS **
+    close  total   +65.87 (vs live  +51.09)  ex-top2   +28.29  ex-top3   +11.38  t=+1.16
+           half1  +48.18   half2   +2.91  BOTH SAME SIGN
+
+  stop 1.0 + trail
+    touch  total   +13.78 (vs live  +17.81)  ex-top2   -20.41  ex-top3   -34.06  t=+0.27
+           half1  +13.34   half2   +4.46  BOTH SAME SIGN
+    close  total   +35.41 (vs live  +20.63)  ex-top2    +1.22  ex-top3   -14.17  t=+0.67
+           half1   +7.90   half2  +12.73  BOTH SAME SIGN
+
+  stop 1.0, NO TRAIL
+    touch  total   +85.70 (vs live  +89.73)  ex-top2   -21.72  ex-top3   -62.34  t=+0.85
+           half1  +20.71   half2  +69.01  BOTH SAME SIGN
+    close  total   +85.70 (vs live  +70.93)  ex-top2   -21.72  ex-top3   -62.34  t=+0.85
+           half1  +13.00   half2  +57.93  BOTH SAME SIGN
+
+  A candidate is only interesting if it beats LIVE in BOTH modes,
+  survives ex-top2 AND ex-top3, and does not flip sign across halves.
+  Remember n=38. Two trades can carry anything here.

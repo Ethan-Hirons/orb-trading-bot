@@ -1,0 +1,20 @@
+PREREG-2026-09-22 H1/H2 -- run 2026-10-12 19:23, window 2025-07-01 -> 2025-12-31, 128 sim days
+
+A live   trades  497  win  52.5%  net   +321.26  exp  +0.65  t +1.03  stop-rate  43.5%  maxDD   194.51  exits eod:67/stop:216/tp:1/trail:213
+B1 H1    trades  177  win  56.5%  net   +183.86  exp  +1.04  t +1.13  stop-rate  40.7%  maxDD   121.66  exits eod:30/stop:72/trail:75
+B2 H2    trades  492  win  67.1%  net    -20.99  exp  -0.04  t -0.15  stop-rate  21.3%  maxDD   127.80  exits eod:115/stop:105/trail:272
+
+H1 require news: REJECTED
+   [x] expectancy B > A             +1.04 vs +0.65
+   [ ] B expectancy > 0, t >= 2.0   exp +1.04, t +1.13
+   [x] stop rate B < A              40.7% vs 43.5%
+   [x] max DD B <= A                121.66 vs 194.51
+H2 range stop: REJECTED
+   [ ] expectancy B > A             -0.04 vs +0.65
+   [ ] B expectancy > 0, t >= 2.0   exp -0.04, t -0.15
+   [x] stop rate B < A              21.3% vs 43.5%
+   [x] max DD B <= A                127.80 vs 194.51
+
+Combined run skipped: it runs only if both pass (prereg rule).
+
+A pass earns a PAPER trial with its own pre-registered sample -- not a live change.

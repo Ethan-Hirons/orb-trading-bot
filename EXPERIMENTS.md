@@ -68,8 +68,12 @@ Every one of those had a number that cleared a bar. None had a mechanism.
 
 ## Baseline — the number everything is measured against
 
-**100 trades, total −22.60, win rate 44.0%, expectancy −0.23/trade,
-max drawdown 237.59, avg win +14.27, avg loss −11.62.**
+**102 trades, total −30.69, win rate 44.1%, expectancy −0.30/trade,
+max drawdown 237.59.** _(Restated 2026-09-30 from the paper log. The previous
+baseline — 100 trades, −22.60, −0.23/trade, 44.0%, avg win +14.27, avg loss
+−11.62 — was current to 09-24. Two trades since then netted −8.09. Every
+criterion below was written against the OLD number; restate each one against
+−0.30 before its sample starts, never after seeing the result.)_
 
 t ≈ −0.18. Indistinguishable from zero in either direction. At this variance,
 separating a real +0.50/trade edge from noise takes thousands of trades.
@@ -168,10 +172,297 @@ written down why it was passed over.
 
 ---
 
+## The number every experiment here is chasing
+
+win rate 44.00% | avg win +14.27 | avg loss −11.62 | payoff ratio **1.229**
+
+Breakeven at 44% needs a payoff ratio of **1.273**.
+
+> **The bot is 3.6% of payoff ratio from breakeven — +$0.51 on the average
+> winner.** The paper's hit ratio is 48.4% against this bot's 44.0%. Selection
+> is not the gap. Payoff structure is.
+
+## E8 — What happens to the breakouts we reject  ★ measurement, zero trading impact
+
+**Opened 2026-09-30**, after a live session with one candidate and no trade.
+
+`confirm_bar_close: true`, `confirm_lookback_bars: 3`,
+`volume_filter_ratio: 0.5`. A breakout is taken only if a completed 1-min bar
+CLOSES beyond the range within the last 3 bars, on volume ≥ 0.5× the average
+opening-range bar.
+
+**Across all 45 logged sessions:**
+
+| | count |
+|---|---|
+| breakouts seen | **231** |
+| taken | 109 |
+| **rejected by the confirmation rule** | **122 (53%)** |
+
+**The confirmation rule rejects more breakouts than the bot takes. By volume it
+is the single largest gate in the system — and Runs 1–6 never touched it.**
+Entry window, OR length, news bias, relvol and the combined levers were all
+swept. Confirmation was not. It was set reactively in v1.5 after 2026-07-17,
+when five targets broke out within 11 minutes and none confirmed — one bad day,
+no holdout.
+
+**The problem: the data to evaluate it is thrown away every session.** The bot
+logs `broke out <side> but not confirmed (bar close/volume); waiting (further
+waits logged silently)` and then never records what that symbol went on to do.
+
+**The change (logging only, no decision logic touched):** in the rejection path
+at `runner.py:1094`, record the symbol, side, time, range level and the price
+at rejection; then at EOD emit one line per rejected breakout with its
+subsequent high and low relative to the rejection price. Write it to a new
+`state/rejected_breakouts.csv` on the same (date, symbol) key as
+`trade_features.csv`.
+
+**Pre-registered question, to be answered at n ≥ 100 rejections:** did the
+rejected breakouts, on average, run further in the signal direction than they
+retraced? If they did, the filter is costing entries. If they faded, it is
+earning its keep. **No threshold is being proposed and no config changes on
+this result** — it converts an untested assumption into a measured one, and
+whatever it says goes to the sim before it goes anywhere near a config.
+
+## E9 — "More targets" ⛔ REJECTED BY THE DATA — target count is not the constraint
+
+Ethan's suggestion on 2026-09-30, after a no-trade day: widen the screen so the
+bot takes at least 1–2 trades a day. **The logs say this would not work.**
+
+**CORRECTED 2026-10-01.** The original figure counted raw `TARGET ` log lines,
+which double-count — the intraday re-screen reprints the whole list. Actual
+distinct targets per session is **6.1 (median 6)**, not 12.4, and the correlation
+between a session's target count and its entry count is **r = +0.368**, not
++0.245. Still weak, and the conclusion below is unchanged, but the numbers were
+wrong and the corrected ones are these.
+
+Across 45 sessions: ~275 distinct targets, 109 entries, **r = +0.368**.
+
+| | |
+|---|---|
+| most targets | 35→1 entry, 25→**0**, 24→2, 23→3, 20→2 |
+| fewest targets | 1→0, 2→**1**, 3→**1**, 3→**1**, 5→0 |
+
+Zero-entry sessions had 8, 9, 0, 2 and 4 distinct targets — including the
+highest-target day in the sample. A 2-target day produced a trade; a 9-target
+day produced none. `max_targets` is 10 and the pool routinely sits at 4/10 or
+below, so **the cap is not binding and adding capacity would change nothing.**
+
+Adding targets means loosening the screen (`min_prev_day_volume`, gap floors),
+which is a strategy-parameter change in a project that is 0-for-7 on those, and
+it lowers the average quality of what gets traded.
+
+**And the arithmetic that settles it: expectancy is −0.30/trade. More trades at
+negative expectancy is more loss, not more edge.** 102 × −0.30 = −30.69.
+Doubling the rate doubles the bleed. Frequency is only worth buying once
+expectancy is positive.
+
+The legitimate worry underneath it is real: **at ~2.4 entries/session, the
+50-trade promotion gate takes about a month of clean sessions.** That is slow.
+But the answer is to test ideas in the sim and the replay, which generate
+hundreds of trades in minutes, and keep live for measuring what only live can
+measure (E3). Buying sample with real money at negative expectancy is the most
+expensive way to learn anything.
+
+If frequency is still the goal after all that, **E8 is where the leverage
+actually is** — 122 rejected breakouts, 53% of all signals, one untested rule.
+Not the screen.
+
+## E10 — VWAP exit  ⛔ REFUTED 2026-10-01, twice over. Do not re-propose.
+
+**Opened 2026-09-30.** Full working in `RESEARCH-2026-09-30.md`.
+
+**REFUTED ON TWO INDEPENDENT GROUNDS:**
+1. **Its own mechanism fails.** Median distance from entry to session VWAP is
+   **1.75%**; **58% of trades sit more than 1.5% from it**. VWAP is a LOOSER
+   stop than the existing 1.5%, so it cannot protect the dead band — which was
+   the entire reason for proposing it.
+2. **The validated harness agrees.** `stop 1.5 + VWAP` **−31.66** touch;
+   `VWAP only` **−120.42**. Both far worse than live.
+
+The reasoning below is kept because the dead-band observation that motivated it
+is still correct — it is the proposed *fix* that failed.
+
+---
+
+**The observation.** Classified by how they ended, all 100 trades:
+
+| exit | n | total | per trade | win rate |
+|---|---|---|---|---|
+| stop | 42 | −595.94 | −14.19 | 0% |
+| eod flatten | 22 | +332.49 | +15.11 | 68.2% |
+| **trail** | **18** | **+153.94** | **+8.55** | **94.4%** |
+| time stop | 18 | +86.91 | +4.83 | 66.7% |
+
+**The trail is the best exit the bot has — and it reaches 18 trades in 100.**
+It cannot arm until the position is up ~1.25%, and 38% of trades peaked inside
+that dead band and lost −251.53 between them.
+
+**Mechanism (criterion 5).** An exit armed from the moment of entry can protect
+a trade that peaks at +0.6%; the current trail structurally cannot. VWAP is the
+form of it used in Zarattini & Barbon's intraday-momentum paper — *"if the
+price crosses below VWAP (for a long position), close the position"* — and it
+is volatility-adaptive with **no tunable parameter**, which matters in a
+project that is 0-for-7 on tuned parameters.
+
+**It is free.** Alpaca's bar model carries `vwap`; `broker.get_minute_bars`
+already fetches it on every call and the repo has no reference to it anywhere.
+No extra API call, no new data dependency.
+
+**What must be established before anything ships**, in this order:
+1. `replay.py --validate` reproduces booked P&L. If not, stop.
+2. `vwap_dist_at_entry_pct` shows whether VWAP is tighter or looser than 1.5%
+   on this universe. **Nobody knows yet** — on a +50% gapper it may be looser.
+3. The replay grid shows VWAP-exit beating the live rules under **both** fill
+   assumptions. A result that only works under `touch` is a wick artifact.
+
+**Pre-registered criterion, stated before any sample:** over ≥50 paper trades,
+expectancy improvement **≥ +0.30/trade** against the restated 102-trade
+baseline of −0.30, AND the sign survives dropping the top 2 trades, AND max
+drawdown does not exceed the baseline 237.59. Miss any one → revert, no
+re-tuning.
+
+**Do not read this as "remove the trail".** That was this session's first
+hypothesis and the data refuted it: the trail gives back 1.25 pp against the
+EOD flatten's 2.13 pp, so removing it pushes its 18 winners into a worse exit.
+
+## E11 — Execution cost now exceeds the entire trial loss  ★ measurement
+
+Stop fills on the 1.5% stop realise **−1.58% at the median**, 0.08 pp past the
+stop. Excluding the known AHCO ops bug: **$18.73 across 28 stop-outs**. Robust —
+dropping the two worst barely moves it.
+
+With E1's entry slippage ($30.60 over 98 trades), total execution cost is
+**$49.33 against a whole-trial P&L of −$22.60. Gross of execution the bot is
+roughly +$27.**
+
+**Honest limit:** median entry spread is 0.118% and the median stop overshoot
+is 0.08 pp — *smaller than the spread*. Most of this is crossing the spread,
+not a bug. What it establishes is that the real stop is **1.58%, not 1.50%**,
+and that the payoff-ratio target below is measured on already-slipped numbers.
+
+## Tested and rejected 2026-09-30 — do not re-propose without new data
+
+| hypothesis | headline | what killed it |
+|---|---|---|
+| the bot's own score predicts P&L | +1.27 vs −1.61 | drop top 2 → −0.40 |
+| gap 5–10% sweet spot | +5.68/trade (n=16) | drop top 2 → −1.82 |
+| first-bar confirms beat retries | +1.89 vs −1.16 | drop top 2 → −3.13 |
+| 4+ trades/day is the damage | −4.62/trade (n=42) | only 8 distinct days — nested subsets |
+| Monday is different | +10.72, t=+1.97 | no mechanism; 5 comparisons |
+| crypto / leveraged worse | crypto −1.79 | all die ex-top2 |
+| volatility-scaled stop lifts P&L | tightest bucket −6.11 | split-half flips sign |
+
+**The lesson, which is worth more than any of them:** every selection-side
+finding is a *subset* finding — 100 trades cut into buckets of 15–25, where two
+trades decide the answer. An exit rule is not a subset; it applies to all 100 at
+once. That is why the give-back finding strengthened under drop-top-2 (+67 →
++118) while all seven of these collapsed. **This dataset can speak to exits. It
+cannot speak to selection.**
+
+## E12 — stop 1.0  ★ FIRST candidate ever to survive the robustness battery
+
+**Opened 2026-10-01.** Full working in `RESEARCH-2026-09-30.md` and
+`exit-structure` memory. **No config change is proposed yet.** Read the design
+below — this is testable with nothing deployed at all.
+
+### What survived
+
+Validated harness (replay reproduces booked P&L to **+0.64 across 38 trades**;
+27 of 38 per-trade within 0.1%). Deltas vs LIVE after dropping the best trades:
+
+| candidate | mode | full | ex-top2 | ex-top3 | halves |
+|---|---|---|---|---|---|
+| NO TRAIL | touch | +63.73 | **−9.49** | **−36.47** | same sign |
+| NO TRAIL | close | +79.81 | +6.58 | **−18.65** | same sign |
+| stop 1.0, NO TRAIL | touch | +89.72 | +16.50 | **−10.48** | same sign |
+| trail 0.75 | touch | +26.32 | +26.35 | +23.93 | **SIGN FLIPS** |
+| **stop 1.0 + trail** | touch | **+17.80** | **+17.81** | **+17.80** | same sign |
+| **stop 1.0 + trail** | close | **+20.63** | **+20.64** | **+20.63** | same sign |
+
+**The mechanism (gate criterion 5).** Dropping the three best trades moves the
+delta by **0.01**. The gain has nothing to do with winners — it comes entirely
+from **losing less on the trades that fail**. A tighter stop cuts the loser
+sooner; the winners never go near either stop, so they are untouched. That can
+be restated without reference to the backtest, which is the test that matters.
+
+### Why it is NOT a result yet
+
+n=38. **In-sample with no holdout left** — those 38 are every current-regime
+trade in existence. t = +0.27 (touch) / +0.67 (close), nowhere near
+significance. One of five candidates, so multiple comparisons apply. And it
+pulls against the volatility work: a 1.0% stop sits inside a *median 0.23* of
+the opening range, tighter still, and the stop-out rate will rise.
+
+### The design: test it with NO config change at all
+
+The obvious move — set paper to stop 1.0 and leave live at 1.5 — gives a clean
+concurrent control but **destroys E3**, which needs the two instances identical.
+That trade-off is avoidable.
+
+**The harness validates. So it can compute, for every NEW trade as it happens,
+what a 1.0% stop would have done — without changing anything.** Paper and live
+stay identical, E3 keeps accumulating, nothing is deployed, and the evidence
+builds on data that did not exist when the hypothesis was formed. That is a
+genuine out-of-sample test, which is the one thing this project has never had.
+
+**2026-10-02 onward is the holdout.** It is untouched by construction. Run
+`python -u replay.py --robust --since 2026-10-02` once enough trades exist.
+
+### Pre-registered criteria — written 2026-10-01, BEFORE any holdout data
+
+Over **≥ 30 trades dated 2026-10-02 or later**, all of:
+
+1. `stop 1.0 + trail` beats `stop 1.5 + trail` in **touch** mode.
+2. It also beats it in **close** mode (not a wick artifact).
+3. The advantage survives **ex-top2 AND ex-top3**.
+4. The per-trade delta is **≥ +0.25/trade** — deliberately far below the
+   +0.47 (touch) / +0.54 (close) the in-sample window shows, because in-sample
+   results shrink and this project's shrink to zero.
+5. Sign does not flip between the first and second half of the holdout.
+
+**Miss any one → rejected, no re-tuning, no re-running with a different
+threshold.** Clearing all five earns a **paper** config change with its own
+50-trade sample — not a live one.
+
+**Honest note on timing:** at the current ~1–2 trades/session this needs
+roughly 20–30 sessions. There is no way to make that faster that does not
+involve lowering the bar.
+
+## ⛔ NO TRAIL — REJECTED 2026-10-01. Argued for twice, killed twice.
+
+The source paper uses no trailing stop and calls profit targets detrimental, so
+removing the trail was proposed on 09-30, withdrawn the same day, and revived
+by the validated harness at **+63.73**. It then **died on concentration**:
++63.73 → −9.49 → −36.47, reversing in both fill modes by ex-top3. SNXX 09-18
+alone ran +11.6%.
+
+**The 09-30 withdrawal was right for the WRONG reason.** It argued the trail
+gives back 1.25pp vs the EOD flatten's 2.13pp — **selection bias**: the trail
+only fires on trades already winning. Trail exits average MFE **+4.58%**, EOD
+exits **+1.14%**. Different populations, conditioned on the outcome. The real
+reason it fails is concentration, and only a validated harness could show it.
+
+**Do not re-propose removing the trail.**
+
 ## Log
 
 | date | change | instance | n | result | decision |
 |---|---|---|---|---|---|
-| 2026-09-27 | (baseline) | paper | 100 | −0.23/trade | — |
+| 2026-09-27 | (baseline, superseded) | paper | 100 | −0.23/trade | restated 09-30 |
 | | H1 news-confirmed bias | sim first | — | not yet run | see PREREG-2026-09-22 |
 | | H2 opening-range stop | sim first | — | not yet run | see PREREG-2026-09-22 |
+| 2026-09-29 | (none — E3 overlap begins) | both | 1 | SOXL both sides; live +0.03pp vs paper | keep paper == live |
+| 2026-09-30 | (none) | live | 0 | no entry; QURE rejected on confirmation, relvol 2.19x | E8 opened |
+| 2026-09-30 | (research only) | — | — | 7 selection hypotheses tested, 7 rejected | E10/E11 opened |
+| 2026-10-01 | (none) | both | 0 | 2 targets, neither broke out; both clean | — |
+| 2026-10-01 | replay.py VALIDATED | — | 38 | +0.64 vs actual; 27/38 within 0.1% | harness usable |
+| 2026-10-01 | NO TRAIL | sim | 38 | +63.73 → −9.49 ex-top2 | **REJECTED (10th)** |
+| 2026-10-01 | VWAP exit | sim | 38 | −31.66 touch | **REJECTED** |
+| 2026-10-01 | stop 1.0 + trail | sim | 38 | +17.80 / +17.81 / +17.80 | **E12 — holdout opens 10-02** |
+| 2026-10-12 | (none) | both | 3 / 3 | WFF halt-gap trail fill: paper +183.42, live +93.20; ex-top2 paper is −229.68 | see RESEARCH-2026-10-12 |
+| 2026-10-12 | E3 interim | both | 12 | median live−paper +0.03pp; thin names diverge (SDEV −0.76, WFF −4.99) | continue to ~20 |
+| 2026-10-12 | E12 holdout | paper | 22 | not evaluated (needs 30) | wait |
+| 2026-10-12 | H1 require news | sim 2025-H2 | 177 vs 497 | exp +1.04 vs +0.65, stop 40.7% vs 43.5%, DD 121.66 vs 194.51 — but t +1.13 < 2.0 | **REJECTED** (criterion 2). No re-cut. |
+| 2026-10-12 | H2 range stop | sim 2025-H2 | 492 vs 497 | exp −0.04 vs +0.65; stop rate halved (21.3% vs 43.5%) but each stop cost more | **REJECTED** (criteria 1, 2) |
+| 2026-10-12 | E13 proposed | — | — | IEX blindness on thin/halted names, logging only | needs approval + deploy |
