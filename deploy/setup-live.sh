@@ -113,14 +113,15 @@ PY
 say "6/7  Installing the systemd units"
 cp "$PAPER/deploy/orb-bot.service" "$UNITS/"
 cp "$LIVE/deploy/orb-bot-live.service" "$LIVE/deploy/orb-bot-live.timer" \
-   "$LIVE/deploy/orb-summary-live.service" "$LIVE/deploy/orb-summary-live.timer" "$UNITS/"
+   "$LIVE/deploy/orb-summary-live.service" "$LIVE/deploy/orb-summary-live.timer" \
+   "$LIVE/deploy/orb-healthcheck-live.service" "$LIVE/deploy/orb-healthcheck-live.timer" "$UNITS/"
 systemctl daemon-reload
 if systemd-analyze verify "$UNITS/orb-bot-live.service" 2>&1 | grep -q .; then
   warn "systemd-analyze had something to say about orb-bot-live.service (above)"
 else
   ok "unit files valid (systemd-analyze silent)"
 fi
-systemctl enable --now orb-bot-live.timer orb-summary-live.timer >/dev/null 2>&1
+systemctl enable --now orb-bot-live.timer orb-summary-live.timer orb-healthcheck-live.timer >/dev/null 2>&1
 ok "live timers enabled"
 
 # --------------------------------------------------- 7. prove preflight works

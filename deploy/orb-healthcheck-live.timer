@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the LIVE ORB bot actually started this morning
+
+[Timer]
+OnCalendar=Mon-Fri 09:45
+Persistent=false
+Unit=orb-healthcheck-live.service
+
+[Install]
+WantedBy=timers.target
