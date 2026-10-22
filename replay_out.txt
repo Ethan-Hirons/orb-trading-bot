@@ -1,0 +1,168 @@
+﻿100 trades in trade_history.csv; feed=sip, min-trades=3
+replaying 38 from 2026-08-19 onward (62 excluded as a different config regime)
+
+  WHY THE FILTER: the 100-trade history is not one strategy. Up to 2026-07-31
+  the bot ran stop 3.0 with a 3-5% take-profit and a 180-minute time stop;
+  stop became 1.5 and the target came off on 08-03; the entry window dropped
+  180 -> 60 around 08-06; and the trail did not actually work until 08-19.
+  Replaying TODAY's rules against those trades compares two different bots.
+
+  WARNING, and it cuts against me: P&L by start date is
+     from 08-03  n=62  -0.85/trade
+     from 08-19  n=38  -0.12/trade
+     from 08-25  n=23  +0.84/trade
+  Picking the window with the best number is the subset trap this project has
+  been burned by seven times. 08-19 is chosen because that is when the trail
+  began working - a MECHANICAL reason - not because of its P&L. The P&L of any
+  chosen window is NOT evidence of an edge; n=38 at -0.12 is still zero.
+
+  bars 1/38  SOXS 2026-08-19   
+  bars 2/38  AMLX 2026-08-19   
+  bars 3/38  BITO 2026-08-20   
+  bars 4/38  MARA 2026-08-21   
+  bars 5/38  CONL 2026-08-21   
+  bars 6/38  TSLL 2026-08-21   
+  bars 7/38  MRNA 2026-08-21   
+  bars 8/38  ETHA 2026-08-21   
+  bars 9/38  BITO 2026-08-21   
+  bars 10/38  IBIT 2026-08-21   
+  bars 11/38  SOXS 2026-08-24   
+  bars 12/38  BMNR 2026-08-24   
+  bars 13/38  ETHA 2026-08-24   
+  bars 14/38  IBIT 2026-08-24   
+  bars 15/38  BITO 2026-08-24   
+  bars 16/38  NVDA 2026-08-25   
+  bars 17/38  SNXX 2026-08-26   
+  bars 18/38  DKS 2026-08-26   
+  bars 19/38  PATH 2026-08-26   
+  bars 20/38  DYN 2026-09-08   
+  bars 21/38  TSLL 2026-09-08   
+  bars 22/38  IRD 2026-09-09   
+  bars 23/38  INTC 2026-09-09   
+  bars 24/38  TSLL 2026-09-10   
+  bars 25/38  SOXS 2026-09-10   
+  bars 26/38  ONDS 2026-09-10   
+  bars 27/38  MARA 2026-09-18   
+  bars 28/38  SNXX 2026-09-18   
+  bars 29/38  IBIT 2026-09-18   
+  bars 30/38  INTC 2026-09-21   
+  bars 31/38  BITO 2026-09-21   
+  bars 32/38  WBD 2026-09-21   
+  bars 33/38  SNXX 2026-09-22   
+  bars 34/38  XNDU 2026-09-22   
+  bars 35/38  SOXL 2026-09-22   
+  bars 36/38  SOXS 2026-09-23   
+  bars 37/38  INTC 2026-09-24   
+  bars 38/38  SNXX 2026-09-24   
+  38 of 38 trades have bars
+  38 have a logged entry time; 0 replay from the open (their result is less trustworthy)
+
+=== HARNESS VALIDATION ===
+Replaying the LIVE rules (stop 1.5, trail 1.25 arming at 1.25) and
+comparing with the P&L the bot actually booked.
+
+  touch   replay     -4.02   actual     -4.66   diff    +0.64   (on 38 of 38 trades)
+  close   replay    +14.78   actual     -4.66   diff   +19.44   (on 38 of 38 trades)
+
+  A large gap here means the replay does not model what the bot does
+  (entry timing, partial fills, the IEX/SIP difference) and NOTHING
+  below should be believed until it is explained.
+
+=== PER-TRADE AGREEMENT (exit price, % of entry) ===
+  the aggregate can match by accident. This cannot.
+  scored on 38 of 38 trades.
+
+   actual exit    n  match<0.1%   <0.5%   >0.5%  median err
+           eod    9           7       8       1       0.03%
+         trail   16          14      15       1       0.07%
+          stop   13           6      11       2       0.11%
+           ALL   38          27      34       4       0.06%
+
+=== WHAT THE REPLAY CALLS IT vs WHAT IT REALLY WAS ===
+      actual -> replay           n
+       trail -> trail             15
+        stop -> stop              11
+         eod -> eod                8
+        stop -> eod                1   <-- disagrees
+       trail -> stop               1   <-- disagrees
+        stop -> trail              1   <-- disagrees
+         eod -> stop               1   <-- disagrees
+
+=== THE 10 WORST DISAGREEMENTS ===
+  2026-09-22 SNXX   actual stop   -1.60%  replay trail          err   +1.69%
+  2026-08-21 BITO   actual stop   -1.52%  replay eod            err   +0.81%
+  2026-09-09 IRD    actual trail  -0.73%  replay stop           err   -0.77%
+  2026-09-24 SNXX   actual eod    -0.87%  replay stop           err   -0.63%
+  2026-09-10 ONDS   actual stop   -1.74%  replay stop           err   +0.24%
+  2026-09-08 DYN    actual stop   -1.73%  replay stop           err   +0.23%
+  2026-09-10 SOXS   actual stop   -1.66%  replay stop           err   +0.16%
+  2026-08-20 BITO   actual eod    +1.13%  replay eod            err   +0.13%
+  2026-08-21 MARA   actual stop   -1.62%  replay stop           err   +0.12%
+  2026-08-19 SOXS   actual trail  +0.59%  replay trail          err   +0.12%
+
+  Read `eod` first. If those do not reproduce, fix that before
+  believing anything about stops.
+
+=== ACTUAL: -4.66 over 38 trades (-0.123/trade) ===
+
+=== THE TRAIL ITSELF  ***  the source paper uses NO trailing stop  ***
+  Zarattini/Barbon/Aziz hold to the close or the stop, nothing else, and
+  report that adding a PROFIT TARGET is detrimental. A trailing stop is a
+  soft profit target: it caps every winner at (peak - trail). This bot's
+  trail is its own invention, validated in-sample only, by the same sweep
+  method that is 0-for-7 out of sample.
+  rule                         touch     close   d/trade d/trade
+  stop 1.5, NO TRAIL (paper)    +59.71    +94.59    +1.694  +2.612
+  stop 1.5 + trail (LIVE)      -4.02    +14.78    +0.017  +0.511
+  ^ THE most important two rows in this output. If no-trail wins, the
+    give-back measured in ANALYSIS-2026-09-29 has a one-line fix.
+
+=== E6  BREAKEVEN STOP (the +207 / -280 question) ===
+  rule                         touch     close   d/trade d/trade
+  stop 1.5 + BE at +0.75      +15.35    +52.24    +0.527  +1.497
+  stop 1.5 + BE at +1.0       +11.18    +17.70    +0.417  +0.588
+  stop 1.5 + BE at +1.25       +6.47    +14.78    +0.293  +0.511
+  stop 1.5 + BE at +1.5        -4.02    +14.78    +0.017  +0.511
+  stop 1.5 + BE at +2.0        -4.02    +14.78    +0.017  +0.511
+
+=== E5  SCALE OUT HALF ===
+  rule                         touch     close   d/trade d/trade
+  stop 1.5 + half at +1.0     +14.15     +3.91    +0.495  +0.225
+  stop 1.5 + half at +1.25     +3.62    +15.75    +0.218  +0.537
+  stop 1.5 + half at +1.5      -1.96     +8.48    +0.071  +0.346
+  stop 1.5 + half at +2.0      -1.52    +16.15    +0.083  +0.548
+
+=== STOP WIDTH  (1.25 vs 1.50 vs wider) ===
+  rule                         touch     close   d/trade d/trade
+  stop 1.0                    +13.78    +35.41    +0.485  +1.054
+  stop 1.25                    +2.44    +14.04    +0.187  +0.492
+  stop 1.5                     -4.02    +14.78    +0.017  +0.511
+  stop 2.0                    -16.09     +0.76    -0.301  +0.143
+  stop 2.5                    -50.70    -30.34    -1.212  -0.676
+
+=== TRAIL WIDTH / ARMING  (does arming earlier close the dead band?) ===
+  rule                         touch     close   d/trade d/trade
+  trail 0.5 arms at +0.5      +19.71    +92.55    +0.641  +2.558
+  trail 0.75 arms at +0.75    +22.30    +65.87    +0.709  +1.856
+  trail 1.0 arms at +1.0       +5.37    +45.43    +0.264  +1.318
+  trail 1.25 arms at +1.25     -4.02    +14.78    +0.017  +0.511
+
+=== VWAP TRAIL  (the literature's exit; the bot has no VWAP at all) ===
+  rule                         touch     close   d/trade d/trade
+  stop 1.5 + VWAP exit        -31.66    -29.64    -0.711  -0.657
+  stop 1.5 + VWAP + trail     +14.66    +28.36    +0.508  +0.869
+  VWAP only (no hard stop)   -120.42   -120.42    -3.046  -3.046
+
+  touch = optimistic (wick fills). close = conservative.
+  A change that only works under `touch` is a wick artifact. Discard it.
+  Nothing here is a decision. Pick a mechanism, pre-register the
+  criteria, then test it out of sample.
+
+  per-trade detail -> replay_trades.csv
+  `mfe_first` is the column the summary stats never had: 1 means the
+  high came before the low, so the trade was winnable and gave it back.
+  `vwap_dist_at_entry_pct` answers the open question about the VWAP exit:
+     if it is mostly > 1.5, VWAP is a WIDER stop than the current one;
+     if mostly < 1.5, it is tighter. Nobody knows which yet.
+  `stop_in_range_units` = 1.5% / opening-range width. The live sample
+     spans 0.08 to 57 - the same stop means wildly different risk.

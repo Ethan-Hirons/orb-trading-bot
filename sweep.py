@@ -211,7 +211,8 @@ def run_combo(base_cfg, cache, stop_pct: float, bias_setting,
               trail_setting="off", hold_setting=None,
               arm_setting="entry", tp_setting="cfg",
               or_minutes=None, relvol_min=0.0, atr_k=None,
-              entry_window=None, first_candle=False) -> dict:
+              entry_window=None, first_candle=False,
+              require_news=False, exit_mode="percent") -> dict:
     """Re-simulate the cached days under one parameter combo.
 
     bias_setting: a float (min |sentiment| to set a directional bias) or the
@@ -244,9 +245,27 @@ def run_combo(base_cfg, cache, stop_pct: float, bias_setting,
     generated it. Confirm here, out of sample, before touching config.
     first_candle: use the paper's direction rule (opening-range candle body
     picks the side) instead of breakout-side + news bias.
+
+    PREREG-2026-09-22 dimensions (sim code only; default = live behaviour):
+    require_news: H1. Drop every target whose bias is "any" (no directional
+    news, which includes nearly every leveraged ETP). Applied AFTER
+    build_targets, so ranking/dedup/correlation run exactly as live and only
+    the untradeable-under-H1 names are removed.
+    exit_mode: H2. "range" = stop at the opening-range low/high plus
+    stop_buffer_r (the bot's existing, never-tested `exits.mode: range`),
+    sized at risk_per_trade_pct 0.5 so a wider stop does not silently double
+    the dollar loss, with take_profit_r 100 (unreachable) so the trail -- not
+    a 1R target -- stays the upside exit, matching live. Exactly the B arm the
+    pre-registration specifies; do not vary these numbers.
     """
     cfg = copy.deepcopy(base_cfg)
     cfg.exits.stop_pct = stop_pct
+    if exit_mode == "range":
+        cfg.exits.mode = "range"
+        cfg.sizing.risk_per_trade_pct = 0.5
+        cfg.exits.take_profit_r = 100.0
+    elif exit_mode != "percent":
+        raise ValueError(f"exit_mode must be percent/range, got {exit_mode!r}")
     if or_minutes:
         cfg.strategy.opening_range_minutes = int(or_minutes)
     if bias_setting == "off":
@@ -274,6 +293,8 @@ def run_combo(base_cfg, cache, stop_pct: float, bias_setting,
             if not cands:
                 continue
         targets = build_targets(cfg, cands, news, daily_returns=rets)
+        if require_news:
+            targets = [t for t in targets if t.bias != "any"]
         day_trades = []
         for t in targets:
             stop_override = None
@@ -307,6 +328,8 @@ def run_combo(base_cfg, cache, stop_pct: float, bias_setting,
         "dir_rule": "or-candle" if first_candle else "breakout",
         "relvol": relvol_min or "off",
         "hold": "cfg" if hold_setting is None else hold_setting,
+        "require_news": require_news, "exit_mode": exit_mode,
+        "t_stat": 0.0, "stop_rate": 0.0,
         "trades": len(trades), "win_rate": 0.0, "net_pnl": 0.0,
         "expectancy": 0.0, "max_drawdown": 0.0,
         "avg_win": 0.0, "avg_loss": 0.0, "final_equity": round(equity, 2),
@@ -324,6 +347,15 @@ def run_combo(base_cfg, cache, stop_pct: float, bias_setting,
             avg_win=round(s.avg_win, 2), avg_loss=round(s.avg_loss, 2),
             exits="/".join(f"{k}:{v}" for k, v in sorted(reasons.items())),
         )
+        # PREREG criteria 2 and 3 need these; compute_stats has neither.
+        pnls = [t.pnl for t in trades]
+        n = len(pnls)
+        if n > 1:
+            mean = sum(pnls) / n
+            sd = (sum((x - mean) ** 2 for x in pnls) / (n - 1)) ** 0.5
+            row["t_stat"] = round(mean / (sd / n ** 0.5), 2) if sd > 0 else 0.0
+        row["stop_rate"] = round(
+            100.0 * sum(1 for t in trades if t.exit_reason == "stop") / n, 1)
     return row
 
 

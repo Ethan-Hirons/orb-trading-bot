@@ -29,3 +29,11 @@ qqq_trades.csv
 # Scratch for files that cannot be deleted from the Linux mount (see
 # RUNBOOK: rm is blocked there). Safe to empty from Windows at any time.
 _to_delete/
+
+# replay bar cache: 16MB of Alpaca 1-min JSON, regenerated on demand by
+# replay.py / e8_backfill.py. Never commit.
+.replay_cache/
+
+# live instance logs + state, pulled from the VPS by sync-both.ps1. Same
+# reason logs/ and state/ are ignored above: runtime data, not source.
+live/
