@@ -19,7 +19,7 @@ from orb_bot.config import (
     Config, Credentials, ExitsConfig, NewsConfig, RiskConfig, RuntimeConfig,
     ScreenerConfig, SelectionConfig, SizingConfig, StrategyConfig,
 )
-from orb_bot.news import NewsSignal, score_text, should_exit_on_news
+from orb_bot.news import NewsScanner, NewsSignal, score_text, should_exit_on_news
 from orb_bot.report import compute_stats, pair_fills, pair_fills_all
 from orb_bot.risk import BreakerStatus, RiskManager
 from orb_bot.screener import Candidate
@@ -267,6 +267,44 @@ def test_adverse_news_exit_decision():
     off = NewsConfig(exit_on_adverse=False, adverse_exit_score=0.5)
     assert should_exit_on_news("long", -1.0, off) is False
     print("PASS test_adverse_news_exit_decision")
+
+
+def test_news_dedup_is_per_symbol():
+    """One article tagged with several tickers must reach every one of them.
+
+    2026-10-27: "Why Is IREN Stock Surging Tuesday?" came back for both CRWV
+    and WULF. The seen-set was shared, so whichever the rescan reached first
+    claimed it -- CRWV on paper, WULF on live -- and the other never saw it.
+    """
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    iren =SimpleNamespace(id="a1", headline="Why Is IREN Stock Surging Tuesday?",
+                           summary="")
+    feed = {"CRWV": [iren], "WULF": [iren]}
+    since = datetime(2026, 10, 27, 13, 30, tzinfo=timezone.utc)
+
+    def scanner():
+        s = NewsScanner(_dummy_config(news=NewsConfig(enabled=False)))
+        s.client = object()                  # bypass the "no client" guard
+        s._fetch = lambda symbol, start: feed.get(symbol, [])
+        return s
+
+    # Both symbols score the article, whichever order the rescan visits them.
+    for order in (["CRWV", "WULF"], ["WULF", "CRWV"]):
+        s = scanner()
+        counts = {sym: s.fresh_signal(sym, since).n_articles for sym in order}
+        assert counts == {"CRWV": 1, "WULF": 1}, (order, counts)
+        # ...and each still scores it only once.
+        assert s.fresh_signal("CRWV", since).n_articles == 0
+        assert s.fresh_signal("WULF", since).n_articles == 0
+
+    # The pre-market baseline only silences the symbols it was taken for.
+    s = scanner()
+    s.mark_seen(["CRWV"])
+    assert s.fresh_signal("CRWV", since).n_articles == 0
+    assert s.fresh_signal("WULF", since).n_articles == 1
+    print("PASS test_news_dedup_is_per_symbol")
 
 
 def test_strong_lexicon_weighting():
