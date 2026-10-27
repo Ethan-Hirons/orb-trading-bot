@@ -155,6 +155,60 @@ the size of the paper→live haircut, which tells you how much of the paper
 baseline to believe. This is worth more than E1 and E2 combined, and it costs
 nothing but patience.
 
+### 2026-10-26 — ENTRY TIMING, not fill quality, is what separates the two
+
+The cleanest divergence of the trial, and it reframes what E3 is measuring.
+
+**CRWV traded on both sides and the outcomes were opposite:**
+
+| | entered | ref | fill | MFE | MAE | exit | result |
+|---|---|---|---|---|---|---|---|
+| LIVE | 09:48:00 | 52.97 | 52.9755 | **+1.45%** | −0.12% | trail | **+0.83 (+0.195%)** |
+| PAPER | 09:49:12 | 53.45 | 53.49 | +0.48% | −1.25% | stop | **−11.31 (−1.626%)** |
+
+**72 seconds apart, 0.9% apart on entry price.** Live's entry left room for
+the stock to run +1.45%; the trail armed 09:50:14 (peak +1.35%, armed +1.38%)
+and exited 09:52:32 for a small gain. Paper entered near the high, never got
+far enough above water to arm — **zero TRAIL lines in the paper log all day** —
+and took the full stop.
+
+RHI diverged further: live 10:05:41, paper 10:18:18 — **12.5 minutes apart**,
+on the same signal. Both stopped. On 09-29 the two instances fired 3 seconds
+apart; this is three orders of magnitude larger and is not explained by fill
+quality.
+
+**Whole-day comparison, live vs paper on identical symbols:**
+
+```
+CRWV   live +0.195%   paper −1.626%     live better by 1.82pp
+TSLG   live −1.467%   paper −1.648%     live better by 0.18pp
+RHI    live −1.501%   paper −1.684%     live better by 0.18pp
+```
+
+Paper overshot its −1.5% stop on all four of its trades (−1.557% to −1.684%);
+live landed at −1.467% and −1.501%. **This is the opposite of the stated
+prior.** E3 was opened on the assumption that paper fills optimistically and
+live would underperform. Two sessions now (09-29, 10-26) have gone the other
+way, and today's gap is large.
+
+**What this means for the E3 design.** The experiment assumed the two
+instances see the same signal at the same moment, so any difference is fill
+quality. That assumption is now falsified: they enter minutes apart. Entry
+timing dominates, and a haircut measured across entries 12 minutes apart is
+measuring two different trades, not two fills of one trade.
+
+**Do not conclude "live is better than paper" from this.** n is tiny, and the
+mechanism is almost certainly timing luck — on a day the names had run by
+09:49, the later entry loses; on a day they run after, it wins. The finding
+is the *variance*, not its sign.
+
+**Next step (measurement, no config change):** log the breakout-detection
+timestamp alongside the entry timestamp on both instances, and record the
+per-session delta. Candidate causes worth separating: IEX bar arrival
+differing between the two hosts, polling-loop phase offset, and the
+confirmation rule resolving on different bars. Until that is known, the
+paper→live haircut cannot be isolated.
+
 ## E4 — Time-of-day entry window  ⛔ NOT recommended
 
 The data is tempting: entries ≥40 min after the open ran +1.31/trade (n=20)
@@ -466,3 +520,42 @@ reason it fails is concentration, and only a validated harness could show it.
 | 2026-10-12 | H1 require news | sim 2025-H2 | 177 vs 497 | exp +1.04 vs +0.65, stop 40.7% vs 43.5%, DD 121.66 vs 194.51 — but t +1.13 < 2.0 | **REJECTED** (criterion 2). No re-cut. |
 | 2026-10-12 | H2 range stop | sim 2025-H2 | 492 vs 497 | exp −0.04 vs +0.65; stop rate halved (21.3% vs 43.5%) but each stop cost more | **REJECTED** (criteria 1, 2) |
 | 2026-10-12 | E13 proposed | — | — | IEX blindness on thin/halted names, logging only | needs approval + deploy |
+| 2026-10-25 | replay.py re-validated | — | 34 | ref-anchoring fix: +11.33 → +2.99 diff, exit type 34/34, median err 0.02% | harness trustworthy |
+| 2026-10-25 | E5 scale-out | sim | 34 | worse than live at every trigger in `close` | **REJECTED** — do not build partial-exit path |
+| 2026-10-25 | E6 BE at +0.75 | sim | 34 | passed every robustness gate, then BE +0.25 beat it in both modes | **ABORTED** on its own pre-committed rule |
+| 2026-10-25 | stop/trail/BE grids | sim | 34 | every family's optimum sat at the smallest value tested | **ARTIFACT** — 1-min bar resolution; see ANALYSIS-2026-10-25 §4 |
+| 2026-10-26 | (none) | paper | 4 | −45.00 (−2.17%), 0 winners, no TRAIL lines at all | — |
+| 2026-10-26 | (none) | live | 3 | −12.01 (−0.80%), CRWV trail exit +0.83; SOXS correctly rejected on confirmation | — |
+| 2026-10-26 | E3 — entry timing | both | 3 | CRWV 72s apart → +0.195% vs −1.626%; RHI 12.5 MIN apart; live better on all 3 | **E3 assumption falsified** — see E3 §2026-10-26 |
+| 2026-10-26 | E12 graded (10-15 run, n=30) | sim | 30 | +51.93 both modes, unchanged ex-top2/3, halves +23.10/+28.83 | **PASSES 5/5** — but harness biased toward tight stops (ANALYSIS-2026-10-25 §4); earns PAPER trial only. Draft: E12-PAPER-TRIAL-DRAFT.md |
+| 2026-10-26 | E3 closed | both | 37 | median live−paper +0.04pp, mean −0.07pp | paper freed for E12 trial |
+| 2026-10-27 | (none) | paper | 1 | XP stop −10.92 (−1.57%); EAF rejected unconfirmed, +5.7% after | — |
+| 2026-10-27 | (none) | live | 1 | XP stop −6.75 (−1.51%), entered 3 s from paper | — |
+| 2026-10-27 | E14 edge scan | sim | 7,831 | 11 pre-registered tests, 0 pass; live exit gross ≈ 0 | **NO EDGE** in the entry: see E14 |
+| 2026-10-27 | news attribution fix | code | — | shared `_seen_ids` sent IREN headlines to CRWV (paper) / WULF (live) | **FIXED** f26338d, deploy to both together |
+
+
+## E14 — Edge scan: does the entry signal have drift at all?  ⛔ NO. Read this before opening E15.
+
+**Run 2026-10-27.** Pre-registered in `PREREG-EDGE-SCAN-2026-10-27.md`, summarised in
+`ANALYSIS-2026-10-27.md`. 7,831 signals over 278 sessions from `.sweep_cache/`, with a
+discovery period (2025 H2) and a holdout (2026).
+
+| | result |
+|---|---|
+| long breakout, drift to 15:50 | −0.206% [−0.492, +0.077]; +5 min and +30 min significantly negative |
+| live exit, net | −0.091% [−0.177, +0.000], **gross ≈ 0.009%** |
+| buy the downside break (H-R) | FAIL, −0.15% |
+| fade either break (shorts) | ≈ 0 after costs |
+| 7 selection splits (C1–C7) | 0 pass |
+| SIP opening relvol (H-V) | FAIL, inverted: high relvol fades |
+| buy gap-downs at the open (H-G, gap reversal) | FAIL, sign flips; deep gap-downs keep falling |
+
+**Standing conclusion:** on the gap-screened universe, at 1-min resolution, the opening-range
+break carries no tradeable directional information in either direction. Exits can't add
+edge that isn't in the entry (optional stopping), which is why E5/E6/E10/E12 never
+converged.
+
+**New rule, the drift-first gate:** any new ENTRY idea gets added as a `side` in
+`edge_scan._signal_row` and must show positive drift in both periods before it earns a PREREG.
+Five minutes of compute replaces five weeks of paper trading.
