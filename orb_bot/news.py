@@ -108,7 +108,10 @@ class NewsScanner:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.client = None
-        self._seen_ids: set[str] = set()  # article ids already scored intraday
+        # (symbol, article id) already scored intraday. Keyed per symbol: one
+        # article is often tagged with several tickers, and a shared set let
+        # whichever symbol was rescanned first claim it from the others.
+        self._seen_ids: set[tuple[str, str]] = set()
         if _NEWS_AVAILABLE and cfg.news.enabled:
             creds = cfg.credentials
             try:
@@ -170,7 +173,7 @@ class NewsScanner:
             for a in self._fetch(s, start):
                 aid = str(getattr(a, "id", "") or getattr(a, "headline", ""))
                 if aid:
-                    self._seen_ids.add(aid)
+                    self._seen_ids.add((s, aid))
 
     def fresh_signal(self, symbol: str, since: datetime) -> NewsSignal:
         """Score only articles we have not seen before, published since `since`."""
@@ -179,9 +182,9 @@ class NewsScanner:
         fresh = []
         for a in self._fetch(symbol, since):
             aid = str(getattr(a, "id", "") or getattr(a, "headline", ""))
-            if aid and aid in self._seen_ids:
+            if aid and (symbol, aid) in self._seen_ids:
                 continue
             if aid:
-                self._seen_ids.add(aid)
+                self._seen_ids.add((symbol, aid))
             fresh.append(a)
         return self._score_articles(symbol, fresh)
