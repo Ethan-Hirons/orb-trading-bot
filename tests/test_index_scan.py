@@ -169,6 +169,31 @@ def test_e16_verdict_looks_only_at_fixed_sample_sizes():
     print("PASS test_e16_verdict_looks_only_at_fixed_sample_sizes")
 
 
+def test_sip_end_respects_the_free_plan_embargo():
+    """2026-10-28: `fetch` 403'd with "subscription does not permit querying recent
+    SIP data" because the current month's end was 23:59:59 today. The whole request
+    fails, not just its recent part, so the E16 cache stayed empty."""
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 28, 20, 40, tzinfo=timezone.utc)      # 16:40 ET, the evening job
+    end_of_today = datetime(2026, 10, 28, 23, 59, 59, tzinfo=timezone.utc)
+
+    capped = ix.sip_end(end_of_today, now)
+    assert capped == now - ix.SIP_DELAY, capped
+    assert capped < now, "the request must never reach into the embargo"
+
+    # the cap still covers the session it has to: 15:59 ET = 19:59 UTC
+    assert capped > datetime(2026, 10, 28, 19, 59, tzinfo=timezone.utc), capped
+
+    # a finished month is untouched - this must not shorten the ten-year history
+    old = datetime(2019, 7, 31, 23, 59, 59, tzinfo=timezone.utc)
+    assert ix.sip_end(old, now) == old
+
+    # run during market hours it caps to now-16min, so no future timestamp is sent
+    midday = datetime(2026, 10, 28, 17, 0, tzinfo=timezone.utc)    # 13:00 ET
+    assert ix.sip_end(end_of_today, midday) == midday - ix.SIP_DELAY
+    print("PASS test_sip_end_respects_the_free_plan_embargo")
+
+
 def run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
