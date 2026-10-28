@@ -1055,6 +1055,55 @@ def test_excursion_rejects_impossible_and_thin_bar_readings():
     print("PASS test_excursion_rejects_impossible_and_thin_bar_readings")
 
 
+def test_reanchor_fires_on_small_drift():
+    """ANALYSIS-2026-10-25 section 2: the 0.1% threshold skipped 98 of 158
+    trades, leaving their stops on the pre-trade REFERENCE price.
+
+    NOK 2026-10-13 is the case that decided a trade: ref 9.82, fill 9.8150,
+    drift 0.051% -- under the old threshold. The stop stayed at 9.6727
+    (-1.43% from the fill) instead of 9.6629; price touched 9.6727, stopped
+    out, then rallied."""
+    import logging
+    from types import SimpleNamespace
+
+    from orb_bot.runner import Runner
+
+    def run(ref, fill, stop_pct=1.5):
+        r = Runner.__new__(Runner)
+        r.cfg = _dummy_config()
+        r.log = logging.getLogger("test-reanchor")
+        seen = {}
+        r.broker = SimpleNamespace(
+            adjust_bracket_legs=lambda oid, tp, sl, sl_limit: (
+                seen.update(tp=tp, sl=sl), True)[1])
+        plan = SimpleNamespace(symbol="NOK", side="long", entry_ref=ref,
+                               tp_pct=25.0, stop_pct=stop_pct, stop_limit=None)
+        r._reanchor_exits("oid", plan, fill)
+        return seen
+
+    seen = run(9.82, 9.8150)
+    assert seen, "0.051% drift must now re-anchor (it did not before)"
+    assert abs(seen["sl"] - 9.8150 * (1 - 0.015)) < 1e-9, seen
+    # the stop is now measured from the fill, not the ref
+    assert abs(seen["sl"] / 9.8150 - 1 + 0.015) < 1e-9, seen
+    # fill 9.8150 - 1.5% = 9.66778, against the ref-anchored 9.6727 it kept
+    # before. NOTE: ANALYSIS-2026-10-25 writes this stop as 9.6629, which is
+    # 9.81 - 1.5%, not 9.8150 - 1.5%. One of the two figures in that paragraph
+    # is wrong; the mechanism it describes is not affected either way.
+    assert abs(seen["sl"] - 9.667775) < 1e-6, seen
+    assert abs(9.82 * (1 - 0.015) - 9.6727) < 1e-4   # what it used to keep
+
+    # an exact fill still skips: nothing to re-price, and it costs an API call
+    assert run(10.00, 10.00) == {}
+
+    # and a drift under 1 bp is still skipped
+    assert run(100.00, 100.005) == {}
+    # ... while 2 bp is not
+    assert run(100.00, 100.02) != {}
+
+    print("PASS test_reanchor_fires_on_small_drift")
+
+
 def run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
