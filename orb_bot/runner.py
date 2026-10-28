@@ -1284,9 +1284,18 @@ class Runner:
         self._reanchor_exits(order.id, plan, fill)
         return True
 
+    # Below this the bracket is left alone. Was 0.001 (0.1%), which skipped
+    # 98 of 158 historical trades and left their stops anchored to the
+    # pre-trade REFERENCE price, not the fill: realized stops spanned -1.405%
+    # to -1.590% against a configured -1.500% (ANALYSIS-2026-10-25 section 2).
+    # Mean was -1.490%, so this is a correctness and reproducibility fix, NOT
+    # a P&L fix -- do not expect it to move expectancy. 1 bp keeps the stop
+    # within ~0.0015 pp of configured while still skipping the exact-fill case.
+    REANCHOR_MIN_DRIFT = 0.0001
+
     def _reanchor_exits(self, order_id, plan, fill: float) -> None:
         drift = abs(fill - plan.entry_ref) / plan.entry_ref if plan.entry_ref else 0.0
-        if drift < 0.001:  # < 0.1% slippage: not worth re-pricing
+        if drift < self.REANCHOR_MIN_DRIFT:
             return
         sign = 1 if plan.side == "long" else -1
         tp = fill * (1 + sign * plan.tp_pct / 100.0)
