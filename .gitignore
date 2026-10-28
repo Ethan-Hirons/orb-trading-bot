@@ -40,3 +40,4 @@ live/
 edge_signals.csv
 relvol_sip.json
 edge_gap.csv
+.index_cache/

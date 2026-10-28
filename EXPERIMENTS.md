@@ -533,6 +533,8 @@ reason it fails is concentration, and only a validated harness could show it.
 | 2026-10-27 | (none) | live | 1 | XP stop −6.75 (−1.51%), entered 3 s from paper | — |
 | 2026-10-27 | E14 edge scan | sim | 7,831 | 11 pre-registered tests, 0 pass; live exit gross ≈ 0 | **NO EDGE** in the entry: see E14 |
 | 2026-10-27 | news attribution fix | code | — | shared `_seen_ids` sent IREN headlines to CRWV (paper) / WULF (live) | **FIXED** f26338d, deploy to both together |
+| 2026-10-27 | E15 index ETFs | sim | 2,698 sessions | H1–H4 on SPY, 0 of 4 pass; H3 on QQQ +11.8 bp holdout, post-hoc | **0/4 scored**; QQQ lead needs forward data |
+| 2026-10-27 | E16 drafted | shadow + paper | — | QQQ noise-area forward test; gate fixed before 2026-10-28 | **DRAFT**, awaiting Ethan's approval |
 
 
 ## E14 — Edge scan: does the entry signal have drift at all?  ⛔ NO. Read this before opening E15.
@@ -559,3 +561,34 @@ converged.
 **New rule, the drift-first gate:** any new ENTRY idea gets added as a `side` in
 `edge_scan._signal_row` and must show positive drift in both periods before it earns a PREREG.
 Five minutes of compute replaces five weeks of paper trading.
+
+
+## E15: Index ETFs, four published signal families  ⛔ 0/4 scored, one post-hoc lead (QQQ)
+
+**Run 2026-10-27.** Pre-registered in `PREREG-INDEX-2026-10-27.md`, code `index_scan.py`.
+SIP 1-min bars for SPY/QQQ/IWM/DIA, 2016-01 → 2026-10 (2,698 full sessions). Discovery
+2016–2021, holdout 2022–2026, scored on SPY at 0.5 bp per side.
+
+| family | SPY holdout (net bp) | verdict |
+|---|---|---|
+| H1 last-half-hour momentum (Gao 2018, Baltussen 2021) | −1.39, negative on all 4 ETFs | FAIL, gone post-publication |
+| H2 overnight drift | +1.94 [−1.67, +5.68] | FAIL, market beta not anomaly |
+| H3 noise-area momentum (Zarattini/Aziz/Barbon 2024) | +3.54 [−1.81, +9.05] | FAIL |
+| H4 turn of month | +1.51 per day, CI ±15 | FAIL, no power |
+
+**The lead (post-hoc, not a pass):** H3 on **QQQ** is +11.79 bp per active session
+[+5.18, +18.81] in the holdout, positive every year 2017–2026, both legs positive, robust to
+2 bp per side, holdout Sharpe 1.5 unlevered. On **IWM** the same rule loses significantly
+(−8.82), which matches E14: momentum persists in large-cap growth and fades in small caps.
+Because QQQ was picked after looking, the only valid test is forward data, about 1.8 years
+for statistical proof. A paper trial checks mechanics only and needs its own PREREG.
+
+
+## E16: QQQ noise-area momentum, forward test  🟡 DRAFT, forward clock from 2026-10-28
+
+Pre-registered in `PREREG-QQQ-NOISE-PAPER-2026-10-27.md`. Rules are frozen as E15 H3 on QQQ.
+**Evidence** is the shadow record: the frozen rule replayed nightly on SIP bars
+(`index_scan.py forward`). **Costs and mechanics** come from a separate runner on a second
+paper account (not built yet). Futility looks at 120 and 180 active sessions; the only
+passing look is at 250 (~Jul 2028): t ≥ 1.645, long-only > 0, and positive without the top 5.
+P(pass) ≈ 63% if the holdout-sized edge is real, ≤ 5% if there is none.
