@@ -11,6 +11,12 @@
 
       /opt/orb-bot/logs       -> logs\          (paper)
       /opt/orb-bot-live/logs  -> live\logs\     (live)
+      /opt/orb-noise/logs     -> noise\logs\    (E16 QQQ)
+
+  The E16 instance keeps a different record: noise_<day>.log per session,
+  noise_eod_<day>.log from the 16:40 evening job, and state\noise_ledger.csv
+  (one row per checkpoint). Its log prefix is noise_, not orb_, so each
+  instance carries its own prefix and state-file list below.
 
   Missing days are normal and are reported, not treated as errors: the live
   instance is manual-arm only, so it has far fewer sessions than paper.
@@ -32,9 +38,12 @@ param(
 $Server = "root@157.180.31.101"
 $Local  = "C:\Users\ethan\Claude\Projects\Trading bot"
 
+$OrbState = @("trade_history.csv", "trade_features.csv", "daily_state.json")
+
 $Instances = @(
-    @{ Name = "paper"; Remote = "/opt/orb-bot";      Logs = "$Local\logs";      State = "$Local\state" },
-    @{ Name = "live";  Remote = "/opt/orb-bot-live"; Logs = "$Local\live\logs"; State = "$Local\live\state" }
+    @{ Name = "paper"; Remote = "/opt/orb-bot";      Logs = "$Local\logs";       State = "$Local\state";       Prefix = "orb";   Files = $OrbState },
+    @{ Name = "live";  Remote = "/opt/orb-bot-live"; Logs = "$Local\live\logs";  State = "$Local\live\state";  Prefix = "orb";   Files = $OrbState },
+    @{ Name = "noise"; Remote = "/opt/orb-noise";    Logs = "$Local\noise\logs"; State = "$Local\noise\state"; Prefix = "noise"; Files = @("noise_ledger.csv") }
 )
 
 foreach ($i in $Instances) {
@@ -54,16 +63,16 @@ foreach ($i in $Instances) {
     $report[$name] = @()
 
     if ($All) {
-        scp -q "$($Server):$($i.Remote)/logs/orb_2026-*.log" $i.Logs 2>$null
+        scp -q "$($Server):$($i.Remote)/logs/$($i.Prefix)_2026-*.log" $i.Logs 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "  pulled all orb_2026-*.log" -ForegroundColor Green
+            Write-Host "  pulled all $($i.Prefix)_2026-*.log" -ForegroundColor Green
         } else {
             Write-Host "  no logs matched" -ForegroundColor Yellow
         }
     }
     else {
         foreach ($d in $dates) {
-            scp -q "$($Server):$($i.Remote)/logs/orb_$d.log" $i.Logs 2>$null
+            scp -q "$($Server):$($i.Remote)/logs/$($i.Prefix)_$d.log" $i.Logs 2>$null
             if ($LASTEXITCODE -eq 0) {
                 $report[$name] += $d
                 Write-Host "  $d  ok" -ForegroundColor Green
@@ -73,24 +82,34 @@ foreach ($i in $Instances) {
         }
     }
 
-    # State files. trade_history is the one that matters; daily_state is a nicety.
-    scp -q "$($Server):$($i.Remote)/state/trade_history.csv" $i.State 2>$null
-    scp -q "$($Server):$($i.Remote)/state/trade_features.csv" $i.State 2>$null
-    scp -q "$($Server):$($i.Remote)/state/daily_state.json"  $i.State 2>$null
+    # E16's evening job writes Stage A and the forward verdict to a log and
+    # nowhere else. Without these the noise block in BRIEF.md has no scores.
+    if ($i.Prefix -eq "noise") {
+        scp -q "$($Server):$($i.Remote)/logs/noise_eod_*.log" $i.Logs 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  no noise_eod_*.log yet" -ForegroundColor DarkGray
+        }
+    }
 
-    $hist = Join-Path $i.State "trade_history.csv"
-    if (Test-Path $hist) {
-        $n = [Math]::Max(0, (Get-Content $hist).Count - 1)
-        Write-Host "  trade_history.csv: $n trades" -ForegroundColor Gray
+    # State files. The first one listed is the record that matters; the rest are a nicety.
+    foreach ($f in $i.Files) {
+        scp -q "$($Server):$($i.Remote)/state/$f" $i.State 2>$null
+    }
+
+    $key = Join-Path $i.State $i.Files[0]
+    if (Test-Path $key) {
+        $n = [Math]::Max(0, (Get-Content $key).Count - 1)
+        $what = if ($i.Prefix -eq "noise") { "checkpoint rows" } else { "trades" }
+        Write-Host "  $($i.Files[0]): $n $what" -ForegroundColor Gray
     } else {
-        Write-Host "  trade_history.csv: not present" -ForegroundColor Yellow
+        Write-Host "  $($i.Files[0]): not present" -ForegroundColor Yellow
     }
 }
 
 Write-Host ""
 Write-Host "=== TODAY ($today) ===" -ForegroundColor Cyan
 foreach ($i in $Instances) {
-    $f = Join-Path $i.Logs "orb_$today.log"
+    $f = Join-Path $i.Logs "$($i.Prefix)_$today.log"
     if (Test-Path $f) {
         Write-Host ""
         Write-Host "--- $($i.Name) ---" -ForegroundColor Green
@@ -103,3 +122,4 @@ foreach ($i in $Instances) {
 Write-Host ""
 Write-Host "Paper logs -> $Local\logs" -ForegroundColor DarkGray
 Write-Host "Live  logs -> $Local\live\logs" -ForegroundColor DarkGray
+Write-Host "Noise logs -> $Local\noise\logs" -ForegroundColor DarkGray
