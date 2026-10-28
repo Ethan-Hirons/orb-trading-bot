@@ -57,6 +57,26 @@ def _months(start: date, end: date):
         cur = nxt
 
 
+SIP_DELAY = timedelta(minutes=16)   # the free plan's 15-minute SIP embargo, plus a minute of slack
+
+
+def sip_end(requested: datetime, now: datetime) -> datetime:
+    """Latest `end` the free plan will serve SIP bars for. Pure, so it is testable.
+
+    The subscription serves SIP history but refuses anything inside the last 15
+    minutes, and it refuses the WHOLE request, not just the recent part:
+
+        APIError: {"message":"subscription does not permit querying recent SIP data"}
+
+    Asking for the current month with `end` at 23:59:59 therefore 403s every time
+    it is run on a day in that month, which silently left the E16 forward cache
+    empty (0 active sessions) on 2026-10-28. Capping `end` costs nothing: the
+    bars inside the embargo do not exist yet anyway. The evening job runs at
+    16:40 ET, so the 15:59 close is ~41 minutes old and always inside the cap.
+    """
+    return min(requested, now - SIP_DELAY)
+
+
 def fetch() -> None:
     """One request per month for all four symbols; keeps regular-hours bars only.
 
@@ -78,11 +98,15 @@ def fetch() -> None:
         complete = m1 < today
         if complete and path.exists():
             continue
+        end = sip_end(
+            datetime.combine(min(m1, today), datetime.max.time(), tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
+        )
         req = StockBarsRequest(
             symbol_or_symbols=list(SYMBOLS),
             timeframe=TimeFrame(1, TimeFrameUnit.Minute),
             start=datetime.combine(m0, datetime.min.time(), tzinfo=timezone.utc),
-            end=datetime.combine(min(m1, today), datetime.max.time(), tzinfo=timezone.utc),
+            end=end,
             feed=DataFeed.SIP,
             adjustment=Adjustment.ALL,
         )
@@ -102,7 +126,9 @@ def fetch() -> None:
             path.write_bytes(pickle.dumps(month))
         else:
             (CACHE / "partial.pkl").write_bytes(pickle.dumps(month))
-        print(f"  {m0:%Y-%m}: " + "  ".join(f"{s} {len(month[s]):2d}d" for s in SYMBOLS), flush=True)
+        note = "" if complete else f"  (partial, bars to {end.astimezone(ET):%Y-%m-%d %H:%M} ET)"
+        print(f"  {m0:%Y-%m}: " + "  ".join(f"{s} {len(month[s]):2d}d" for s in SYMBOLS)
+              + note, flush=True)
     save_calendar(today + timedelta(days=400))
 
 
