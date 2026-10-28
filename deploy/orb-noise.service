@@ -1,0 +1,37 @@
+[Unit]
+Description=E16 QQQ noise-area paper runner (daily session, its own paper account)
+After=network-online.target
+Wants=network-online.target
+OnFailure=orb-alert@%n.service
+
+# Crash-loop guard. Must live in [Unit] (see orb-bot.service).
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=orb
+WorkingDirectory=/opt/orb-noise
+ExecStart=/opt/orb-noise/.venv/bin/python -u noise_bot.py run
+
+# The runner exits after verifying flat at 16:05. 09:15 + 7h15m is a hang backstop.
+RuntimeMaxSec=26100
+
+# A restart mid-session is safe: the runner adopts the broker's position and skips
+# checkpoints that have passed. Exit 2 (refused: wrong account or foreign positions)
+# and 3 (not flat at 16:05) need a human, so they are never retried.
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=2 3
+
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/orb-noise/logs /opt/orb-noise/state /opt/orb-noise/.index_cache
+
+[Install]
+WantedBy=multi-user.target

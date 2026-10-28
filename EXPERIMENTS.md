@@ -584,11 +584,11 @@ Because QQQ was picked after looking, the only valid test is forward data, about
 for statistical proof. A paper trial checks mechanics only and needs its own PREREG.
 
 
-## E16: QQQ noise-area momentum, forward test  🟡 DRAFT, forward clock from 2026-10-28
+## E16: QQQ noise-area momentum, forward test  🟢 RUNNING, forward clock from 2026-10-28
 
 Pre-registered in `PREREG-QQQ-NOISE-PAPER-2026-10-27.md`. Rules are frozen as E15 H3 on QQQ.
 **Evidence** is the shadow record: the frozen rule replayed nightly on SIP bars
-(`index_scan.py forward`). **Costs and mechanics** come from a separate runner on a second
-paper account (not built yet). Futility looks at 120 and 180 active sessions; the only
+(`index_scan.py forward`). **Costs and mechanics** come from `noise_bot.py` on a second paper
+account (`/opt/orb-noise`, installed by `deploy/setup-noise.sh`, never imports the ORB bot). Futility looks at 120 and 180 active sessions; the only
 passing look is at 250 (~Jul 2028): t ≥ 1.645, long-only > 0, and positive without the top 5.
 P(pass) ≈ 63% if the holdout-sized edge is real, ≤ 5% if there is none.

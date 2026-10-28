@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the E16 evening job after each market weekday
+
+[Timer]
+# After the runner's 16:05 flat check, and after SIP's 15-minute delay has passed the close.
+OnCalendar=Mon-Fri 16:40
+Persistent=false
+Unit=orb-noise-eod.service
+
+[Install]
+WantedBy=timers.target
