@@ -156,3 +156,15 @@ on the VPS. Account creation isn't something I do.
 ## Forward record
 
 *(appended at each look; deviations and code fixes logged here with dates)*
+
+**2026-10-27, after 7baf8ec, before the first forward session. Rule unchanged.**
+- `index_scan.py`: the H3 decision is split into the pure functions `sigma_at`, `bands` and
+  `target`, which `_h3_day` and `noise_bot.py` both call, so the traded rule can't drift from
+  the tested one. `index_scan_out.txt` and `index_scan_posthoc.txt` reproduce **byte for
+  byte** after the change.
+- Half-days for the forward period: 2026-11-27 and 2026-12-24 were added to `EARLY_CLOSES`.
+  `fetch` now also saves Alpaca's exchange calendar (`.index_cache/calendar.json`), which
+  matches the hard-coded list exactly for 2016–2026 (21 days) and lists the half-days ahead.
+- `noise_bot.py` (the paper runner), its tests (`tests/test_noise_bot.py`), the systemd units
+  and `deploy/setup-noise.sh` were built to the build list above. Stage A starts on the
+  runner's first session.

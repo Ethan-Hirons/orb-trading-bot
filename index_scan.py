@@ -10,6 +10,7 @@ Nothing here touches config.yaml, the bot, or the broker. Read-only research.
 
 from __future__ import annotations
 
+import json
 import os
 import pickle
 import random
@@ -35,8 +36,9 @@ EARLY_CLOSES = frozenset({
     "2016-11-25", "2017-07-03", "2017-11-24", "2018-07-03", "2018-11-23", "2018-12-24",
     "2019-07-03", "2019-11-29", "2019-12-24", "2020-11-27", "2020-12-24", "2021-11-26",
     "2022-11-25", "2023-07-03", "2023-11-24", "2024-07-03", "2024-11-29", "2024-12-24",
-    "2025-07-03", "2025-11-28", "2025-12-24",
+    "2025-07-03", "2025-11-28", "2025-12-24", "2026-11-27", "2026-12-24",
 })
+CALENDAR = CACHE / "calendar.json"   # Alpaca's half-days, saved by fetch(), incl. future ones
 CHECKPOINTS = tuple(range(30, 361, 30))   # 10:00 .. 15:30, minutes from 09:30
 LOOKBACK = 14
 # E16 forward test (PREREG-QQQ-NOISE-PAPER-2026-10-27.md): rules frozen as h3_rows, QQQ.
@@ -101,16 +103,46 @@ def fetch() -> None:
         else:
             (CACHE / "partial.pkl").write_bytes(pickle.dumps(month))
         print(f"  {m0:%Y-%m}: " + "  ".join(f"{s} {len(month[s]):2d}d" for s in SYMBOLS), flush=True)
+    save_calendar(today + timedelta(days=400))
 
 
-def load() -> dict[str, dict[str, list]]:
-    """{symbol: {day: bars sorted by minute}} across every cached month."""
-    out = {s: {} for s in SYMBOLS}
+def save_calendar(until: date) -> None:
+    """Alpaca's exchange calendar -> the half-days, published a year or more ahead."""
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import GetCalendarRequest
+
+    paper = os.environ.get("ALPACA_PAPER", "true").strip().lower() != "false"
+    cli = TradingClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"], paper=paper)
+    days = cli.get_calendar(GetCalendarRequest(start=START, end=until))
+    early = sorted(str(c.date) for c in days if _hhmm(c.close) < "16:00")
+    CALENDAR.write_text(json.dumps(early))
+    print(f"  calendar: {len(days)} sessions to {until}, {len(early)} half-days")
+
+
+def _hhmm(t) -> str:
+    """Calendar open/close arrive as datetime, time or 'HH:MM' depending on SDK version."""
+    return t.strftime("%H:%M") if hasattr(t, "strftime") else str(t)[:5]
+
+
+def early_days() -> frozenset:
+    """Half-days: the hard-coded list plus Alpaca's calendar when fetch() has saved it."""
+    try:
+        return EARLY_CLOSES | frozenset(json.loads(CALENDAR.read_text()))
+    except (OSError, ValueError):
+        return EARLY_CLOSES
+
+
+def load(symbols=SYMBOLS) -> dict[str, dict[str, list]]:
+    """{symbol: {day: bars sorted by minute}} across every cached month.
+
+    Pass one symbol to hold only its bars in memory (the VPS needs only QQQ).
+    """
+    out = {s: {} for s in symbols}
     for path in sorted(CACHE.glob("*.pkl")):
         month = pickle.loads(path.read_bytes())
-        for s in SYMBOLS:
+        for s in symbols:
             out[s].update(month.get(s, {}))
-    for s in SYMBOLS:
+    for s in symbols:
         out[s] = {d: sorted(b) for d, b in sorted(out[s].items())}
     return out
 
@@ -120,9 +152,9 @@ def load() -> dict[str, dict[str, list]]:
 class Session:
     """One regular-hours session with forward-filled closes by minute."""
 
-    def __init__(self, day: str, bars: list):
+    def __init__(self, day: str, bars: list, early: bool | None = None):
         self.day = day
-        self.early = day in EARLY_CLOSES
+        self.early = day in early_days() if early is None else early
         if self.early:
             bars = [b for b in bars if b[0] < EARLY_END]
         self.bars = bars
@@ -159,8 +191,27 @@ class Session:
         return self._vwap[minute - 1]
 
 
-def sessions(bars_by_day: dict) -> list[Session]:
-    return [s for s in (Session(d, b) for d, b in bars_by_day.items()) if s.open]
+def sessions(bars_by_day: dict, early: frozenset | None = None) -> list[Session]:
+    early = early_days() if early is None else early
+    return [s for s in (Session(d, b, d in early) for d, b in bars_by_day.items()) if s.open]
+
+
+# ---------------------------------------------------------------- the H3 rule
+# Shared with noise_bot.py, so the paper runner trades exactly what was tested.
+
+def sigma_at(hist: list[Session], m: int) -> float:
+    """Mean |P(m)/Open - 1| over the lookback sessions."""
+    return _mean([abs(x.p(m) / x.open - 1) for x in hist])
+
+
+def bands(open_: float, prev_close: float, sigma: float) -> tuple[float, float]:
+    """Noise-area boundaries, widened by any overnight gap (paper §3)."""
+    return max(open_, prev_close) * (1 + sigma), min(open_, prev_close) * (1 - sigma)
+
+
+def target(pos: int, p: float, ub: float, lb: float) -> int:
+    """Base model: a breach sets that side (entering or flipping); inside the area, hold."""
+    return 1 if p > ub else -1 if p < lb else pos
 
 
 # ---------------------------------------------------------------- stats
@@ -303,7 +354,6 @@ def h3_rows(ss: list[Session], cost=COST, vwap_stop=False, long_only=False):
 
 
 def _h3_day(s: Session, prev: Session, hist: list[Session], cost, vwap_stop, long_only=False):
-    hi_ref, lo_ref = max(s.open, prev.close), min(s.open, prev.close)
     pos, entry, ret, sides = 0, 0.0, 0.0, 0
     legs = {1: 0.0, -1: 0.0}
 
@@ -313,21 +363,21 @@ def _h3_day(s: Session, prev: Session, hist: list[Session], cost, vwap_stop, lon
         ret += seg; legs[pos] += seg; sides += 1
 
     for m in CHECKPOINTS:
-        sigma = _mean([abs(x.p(m) / x.open - 1) for x in hist])
-        ub, lb, p = hi_ref * (1 + sigma), lo_ref * (1 - sigma), s.p(m)
+        ub, lb = bands(s.open, prev.close, sigma_at(hist, m))
+        p = s.p(m)
         if vwap_stop:
             vw = s.vwap(m)
             ub, lb = max(ub, vw), min(lb, vw)
             if (pos > 0 and p < ub) or (pos < 0 and p > lb):
                 close_at(p)
                 pos = 0
-        want = 1 if p > ub else -1 if p < lb else 0
-        if want and want != pos:
+        new = target(pos, p, ub, lb)
+        if new != pos:
             if pos:
                 close_at(p)
                 pos = 0
-            if want > 0 or not long_only:
-                pos, entry = want, p
+            if new > 0 or not long_only:
+                pos, entry = new, p
                 sides += 1
     if pos:
         close_at(s.close)
@@ -469,7 +519,7 @@ def e16_verdict(active: list[float], long_only: list[float]) -> str:
 
 def report_forward() -> None:
     """E16 shadow record: the frozen H3 rule on QQQ SIP bars since FORWARD_START."""
-    ss = _sessions()["QQQ"]
+    ss = sessions(load(("QQQ",))["QQQ"])
     print(f"E16 forward shadow, QQQ noise-area base model, sessions >= {FORWARD_START}")
     for label, cost in (("0.5 bp/side (scored floor)", COST), ("2 bp/side (stress)", 2 * COST_HI)):
         rows = [r for r in h3_rows(ss, cost) if r["day"] >= FORWARD_START]
@@ -507,6 +557,13 @@ def check() -> None:
     for sym in SYMBOLS[1:]:
         other = {s.day for s in sessions(raw[sym])}
         print(f"{sym} vs SPY: missing {len(spy - other)}, extra {len(other - spy)}")
+    if CALENDAR.exists():
+        cal = frozenset(json.loads(CALENDAR.read_text()))
+        last = max(spy)
+        print(f"half-days, Alpaca calendar vs EARLY_CLOSES up to {last}: "
+              f"only in calendar {sorted(d for d in cal - EARLY_CLOSES if d <= last)}, "
+              f"only hard-coded {sorted(d for d in EARLY_CLOSES - cal if d <= last)}; "
+              f"next ones {sorted(d for d in cal if d > last)[:4]}")
 
 
 def report() -> None:

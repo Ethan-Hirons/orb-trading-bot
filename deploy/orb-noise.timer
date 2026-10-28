@@ -1,0 +1,12 @@
+[Unit]
+Description=Start the E16 QQQ paper runner each market weekday morning
+
+[Timer]
+# Host timezone is America/New_York (see orb-bot.timer). The runner checks Alpaca's
+# calendar itself, so holidays and half-days exit cleanly without trading.
+OnCalendar=Mon-Fri 09:15
+Persistent=false
+Unit=orb-noise.service
+
+[Install]
+WantedBy=timers.target
