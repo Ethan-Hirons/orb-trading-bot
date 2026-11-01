@@ -1,11 +1,23 @@
-"""Checks for noise_bot.py: a whole simulated session against a fake broker and clock.
+"""Checks for noise_bot.py: whole simulated sessions against a fake broker and clock.
 
 Run with:  python tests/test_noise_bot.py
 No network, no keys, no orders: FakeBroker fills everything itself.
+
+FakeBroker models what Alpaca did on 2026-10-30, not an idealised exchange:
+  * market-on-close (CLS) orders sit "accepted" until the 16:00 auction, then fill fully,
+    partly (the rest expires) or not at all, as configured;
+  * DAY market orders sent before 09:30 queue and fill at the open;
+  * DAY market orders sent after 16:00 queue for the NEXT session (never fill today);
+  * regular-hours market orders fill at once, unless `stall` says the next exit order hangs.
+It accepts both the pre-fix calls (market(..., at_close), flatten) and the fixed ones
+(cancel, open_order_ids, filled), so the regression tests can run against either version.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import sys
 import tempfile
 from datetime import date, datetime, time as dtime, timedelta
@@ -19,7 +31,8 @@ from index_scan import ET
 
 TODAY = date(2026, 11, 2)          # a Monday
 ALERTS: list = []
-nb.notify = lambda title, body, priority="default": ALERTS.append((title, body))
+nb.notify = lambda title, body, priority="default": ALERTS.append((title, body, priority))
+OPEN = {"accepted", "new", "partially_filled", "pending_new"}
 
 
 def _days_before(d: date, n: int) -> list[str]:
@@ -43,6 +56,10 @@ def _history(today_bars=17):
     return hist
 
 
+def _at(t: dtime) -> datetime:
+    return datetime.combine(TODAY, t, tzinfo=ET)
+
+
 class FakeClock:
     def __init__(self, t: datetime):
         self.t = t
@@ -56,30 +73,43 @@ class FakeClock:
 
 class FakeBroker:
     def __init__(self, clock, prices, account="PA1", held=None, foreign_orders=(),
-                 cal=None, moc_rejects=False):
+                 cal=None, moc="full", stall=0, queued=()):
         self.clock, self.prices = clock, prices
         self.account = account
         self.held = dict(held or {})
         self.foreign_orders = set(foreign_orders)
         self.cal = cal or {**{d: "16:00" for d in _days_before(TODAY, 20)}, TODAY.isoformat(): "16:00"}
-        self.moc_rejects = moc_rejects
-        self.orders, self._status = [], {}
+        self.moc = moc            # the closing auction: "full", "partial", "none", or "reject" on send
+        self.stall = stall        # this many market orders sent at/after 15:58 never fill
+        self.orders, self.book, self.fills = [], {}, []
         self.close_price = 99.0
+        for side, qty in queued:  # e.g. Friday's after-hours close, still working on Monday
+            self.book[f"q{len(self.book)}"] = dict(side=side, qty=qty, kind="queued",
+                                                   status="accepted", price=0.0, filled=0)
 
-    def _apply(self, side, qty, price):
-        q = self.held.get("QQQ", 0.0) + (qty if side == "buy" else -qty)
-        if q:
-            self.held["QQQ"] = q
-        else:
-            self.held.pop("QQQ", None)
+    # --- the exchange
+    def _fill(self, o, n, price):
+        if n:
+            q = self.held.get("QQQ", 0.0) + (n if o["side"] == "buy" else -n)
+            if q:
+                self.held["QQQ"] = q
+            else:
+                self.held.pop("QQQ", None)
+            self.fills.append((self.clock.now(), o["side"], n, price))
+        o.update(filled=n, price=price if n else 0.0, status="filled" if n == o["qty"] else "expired")
 
     def _settle(self):
-        if self.clock.now().time() >= dtime(16, 0):
-            for oid, (status, price, side, qty, moc) in list(self._status.items()):
-                if moc and status == "accepted":
-                    self._apply(side, qty, self.close_price)
-                    self._status[oid] = ("filled", self.close_price, side, qty, moc)
+        now = self.clock.now()
+        for o in self.book.values():
+            if o["status"] not in OPEN:
+                continue
+            if o["kind"] in ("preopen", "queued") and now >= _at(dtime(9, 30)):
+                self._fill(o, o["qty"], self.prices(_at(dtime(9, 30))))
+            elif o["kind"] == "cls" and now >= _at(dtime(16, 0)):
+                n = {"full": o["qty"], "partial": o["qty"] * 9 // 14, "none": 0}[self.moc]
+                self._fill(o, n, self.close_price)
 
+    # --- the broker API
     def account_number(self):
         return self.account
 
@@ -87,29 +117,48 @@ class FakeBroker:
         self._settle()
         return dict(self.held)
 
+    def open_order_ids(self):
+        self._settle()
+        return [oid for oid, o in self.book.items() if o["status"] in OPEN]
+
     def open_order_symbols(self):
-        return set(self.foreign_orders)
+        return ({"QQQ"} if self.open_order_ids() else set()) | self.foreign_orders
 
     def market(self, side, qty, at_close=False):
+        now = self.clock.now()
         oid = f"o{len(self.orders)}"
         self.orders.append((side, qty, at_close))
-        if at_close:
-            if self.moc_rejects:
-                raise RuntimeError("MOC not supported")
-            self._status[oid] = ("accepted", 0.0, side, qty, True)
-        else:
-            price = self.prices(self.clock.now())
-            self._apply(side, qty, price)
-            self._status[oid] = ("filled", price, side, qty, False)
+        if at_close and self.moc == "reject":
+            raise RuntimeError("MOC not supported")
+        kind = ("cls" if at_close else "preopen" if now < _at(dtime(9, 30))
+                else "afterhours" if now >= _at(dtime(16, 0)) else "day")
+        o = self.book[oid] = dict(side=side, qty=qty, kind=kind, status="accepted", price=0.0, filled=0)
+        if kind == "day":
+            if now >= _at(dtime(15, 58)) and self.stall > 0:
+                self.stall -= 1
+                o["status"] = "new"                  # hangs until cancelled
+            else:
+                self._fill(o, qty, self.prices(now))
         return oid
 
     def order(self, oid):
         self._settle()
-        status, price, *_ = self._status[oid]
-        return status, price
+        return self.book[oid]["status"], self.book[oid]["price"]
+
+    def filled(self, oid):
+        self._settle()
+        return self.book[oid]["filled"]
+
+    def cancel(self, oid):
+        if self.book[oid]["status"] in OPEN:
+            self.book[oid]["status"] = "canceled"
 
     def flatten(self):
-        self.held.clear()
+        """Alpaca's close_all_positions(cancel_orders=True): after hours it QUEUES the closes."""
+        for oid in self.open_order_ids():
+            self.cancel(oid)
+        for sym, q in list(self.held.items()):
+            self.market("sell" if q > 0 else "buy", int(abs(q)))
 
     def latest_trade(self):
         return self.prices(self.clock.now()), self.clock.now()
@@ -130,35 +179,83 @@ def _price_path(t: datetime) -> float:
     return 99.5                # 10:30: below LB -> flip short; holds short after
 
 
-def _session(**kw):
+def _session(start=dtime(9, 15), **kw):
+    ALERTS.clear()
     with tempfile.TemporaryDirectory() as tmp:
         nb.LEDGER, nb.DISARM = Path(tmp) / "ledger.csv", Path(tmp) / "NOISE_DISARMED"
-        clock = FakeClock(datetime.combine(TODAY, dtime(9, 15), tzinfo=ET))
+        clock = FakeClock(_at(start))
         b = FakeBroker(clock, kw.pop("prices", _price_path), **kw)
         rc = nb.run(b, clock, expected_account="PA1")
         rows = nb._rows()
     return rc, b, rows
 
 
-def test_full_session_enters_flips_and_exits_on_close():
-    rc, b, rows = _session()
-    assert rc == 0
+def _bought(b) -> float:
+    return sum(n if side == "buy" else -n for _, side, n, _ in b.fills)
+
+
+# ---------------------------------------------------------------- close-out regressions
+# Each of these fails on the pre-fix close-out (MOC at 15:30, fallback only on a terminal
+# MOC, after-hours flatten at 16:05) and passes on the fixed one.
+
+def test_regression_moc_pending_then_expiring():
+    """2026-10-30: the MOC filled 9 of 14 in the auction and the rest expired at 16:02."""
+    rc, b, rows = _session(moc="partial")
+    assert not any(cls for _, _, cls in b.orders), "no market-on-close orders at all"
+    assert rc == 0 and not b.held, (rc, b.held)
+    assert b.open_order_ids() == [], "nothing queued for tomorrow"
+    print("PASS test_regression_moc_pending_then_expiring")
+
+
+def test_regression_moc_filled():
+    """Even a fully filled MOC flattens only in the auction; the fix is flat before 16:00."""
+    rc, b, rows = _session(moc="full")
     assert b.orders == [("buy", 99, False),            # 10:00: 10_000 // 100.5
                         ("sell", 99, False),           # 10:30: close the long...
                         ("sell", 100, False),          # ...then open the short, 10_000 // 99.5
-                        ("buy", 100, True)], b.orders  # market-on-close cover
-    assert not b.held
-    assert len(rows) == 13 and rows[-1]["checkpoint"] == "close" and rows[-1]["pos_after"] == "0"
-    assert [r["pos_after"] for r in rows[:3]] == ["1", "-1", "-1"]
-    print("PASS test_full_session_enters_flips_and_exits_on_close")
+                        ("buy", 100, False)], b.orders # 15:58: one closing market order
+    t, side, n, _ = b.fills[-1]
+    assert (side, n) == ("buy", 100) and _at(dtime(15, 58)) <= t < _at(dtime(16, 0)), b.fills[-1]
+    rec = json.loads(rows[-1]["orders"])
+    assert rec["v"] == 2 and [(e["status"], e["filled"], e["at"]) for e in rec["exits"]] == \
+        [("filled", 100, "15:58:00")], rec
+    assert rc == 0 and rows[-1]["pos_after"] == "0"
+    print("PASS test_regression_moc_filled")
 
 
-def test_rejected_moc_falls_back_to_market_before_the_close():
-    rc, b, rows = _session(moc_rejects=True)
-    assert rc == 0 and not b.held
-    assert b.orders[-1] == ("buy", 100, False), b.orders      # 15:58 market cover
-    print("PASS test_rejected_moc_falls_back_to_market_before_the_close")
+def test_regression_fallback_filled():
+    """The first closing order hangs: it is cancelled and confirmed dead, then the retry fills.
 
+    Pre-fix: MOC rejected, the 15:58 fallback hangs, nothing retries, 16:05 not flat.
+    """
+    rc, b, rows = _session(moc="reject", stall=1)
+    assert rc == 0 and not b.held and b.open_order_ids() == [], (rc, b.held)
+    exits = json.loads(rows[-1]["orders"])["exits"]
+    assert [e["status"] for e in exits] == ["canceled", "filled"], exits
+    assert _bought(b) == 0, "exactly one closing fill: never double-traded"
+    print("PASS test_regression_fallback_filled")
+
+
+def test_regression_not_flat_at_1605():
+    """No exit fills at all: alert, cancel, and queue NOTHING after hours."""
+    rc, b, rows = _session(moc="none", stall=99)
+    assert rc == 3 and b.held == {"QQQ": -100.0}, (rc, b.held)
+    assert b.open_order_ids() == [], "an after-hours close would fill on top of Monday's"
+    assert any(t == "NOT FLAT" and p == "urgent" for t, _, p in ALERTS), ALERTS
+    assert rows[-1]["checkpoint"] == "close" and rows[-1]["pos_after"] == "?"
+    print("PASS test_regression_not_flat_at_1605")
+
+
+def test_regression_monday_leftover_with_a_queued_order():
+    """Friday left short 5 AND a queued buy 5. Pre-fix both buys fill at the open: long 5."""
+    rc, b, rows = _session(held={"QQQ": -5.0}, queued=[("buy", 5)], prices=lambda t: 100.0)
+    assert not b.held, f"account must be flat after the open, not {b.held}"
+    assert [n for _, side, n, _ in b.fills] == [5], b.fills
+    assert rc == 0 and b.open_order_ids() == []
+    print("PASS test_regression_monday_leftover_with_a_queued_order")
+
+
+# ---------------------------------------------------------------- the rest of the session
 
 def test_refuses_an_account_holding_anything_else():
     for kw in ({"held": {"AAPL": 5}}, {"foreign_orders": {"TSLA"}}, {"account": "PA-ORB"}):
@@ -185,7 +282,7 @@ def test_overnight_leftover_is_closed_at_the_open():
 def test_stale_price_holds_instead_of_trading():
     with tempfile.TemporaryDirectory() as tmp:
         nb.LEDGER, nb.DISARM = Path(tmp) / "ledger.csv", Path(tmp) / "x"
-        clock = FakeClock(datetime.combine(TODAY, dtime(9, 15), tzinfo=ET))
+        clock = FakeClock(_at(dtime(9, 15)))
         b = FakeBroker(clock, _price_path)
         b.latest_trade = lambda: (100.5, clock.now() - timedelta(minutes=10))
         assert nb.run(b, clock, expected_account="PA1") == 0
@@ -208,11 +305,8 @@ def test_plan_matches_the_backtest_rule():
     print("PASS test_plan_matches_the_backtest_rule")
 
 
-def test_reconcile_scores_agreement_and_slippage_against_sip():
-    import contextlib
-    import io
-
-    open_dt = datetime.combine(TODAY, dtime(9, 30), tzinfo=ET)
+def test_reconcile_counts_stage_a_from_the_fix_and_scores_exits_same_minute():
+    open_dt = _at(dtime(9, 30))
     sip = _history()
     # SIP bar k closes at the price the fake broker quoted one minute later: P(m) = price at m
     sip[TODAY.isoformat()] = [_bar(k, _price_path(open_dt + timedelta(minutes=k + 1)))
@@ -221,7 +315,10 @@ def test_reconcile_scores_agreement_and_slippage_against_sip():
     real_load = ix.load
     with tempfile.TemporaryDirectory() as tmp:
         nb.LEDGER, nb.DISARM = Path(tmp) / "ledger.csv", Path(tmp) / "x"
-        clock = FakeClock(datetime.combine(TODAY, dtime(9, 15), tzinfo=ET))
+        # one pre-fix session (old close-row format) that Stage A must ignore
+        nb._ledger({"day": "2026-10-30", "checkpoint": "close", "pos_before": -1, "pos_after": "?",
+                    "orders": json.dumps([["expired", 690.6, "x"]])})
+        clock = FakeClock(_at(dtime(9, 15)))
         nb.run(FakeBroker(clock, _price_path), clock, expected_account="PA1")
         ix.load = lambda symbols=ix.SYMBOLS: {"QQQ": sip}
         try:
@@ -231,12 +328,13 @@ def test_reconcile_scores_agreement_and_slippage_against_sip():
         finally:
             ix.load = real_load
     text = out.getvalue()
+    assert "from 2026-11-02, 1 pre-fix session(s) ignored): 1 sessions" in text, text
     assert "full coverage 1/1, verified flat 1/1" in text, text
     assert "12/12 (100.0%)" in text, text
-    # three entry fills at the SIP price (0 bp) and a cover at 99.0 against a 99.5 close:
-    # (99.0 / 99.5 - 1) / 4 fills = -50.25 bp / 4
-    assert "mean -12.56 bp over 4 fills" in text, text
-    print("PASS test_reconcile_scores_agreement_and_slippage_against_sip")
+    # three entries and the 15:58 exit, each at the same-minute SIP price
+    assert "mean +0.00 bp over 4 fills" in text, text
+    assert "exit timing vs the shadow's close (not a cost): mean +0.00 bp over 1 exits" in text, text
+    print("PASS test_reconcile_counts_stage_a_from_the_fix_and_scores_exits_same_minute")
 
 
 def run_all():

@@ -3,7 +3,7 @@
 See PREREG-QQQ-NOISE-PAPER-2026-10-27.md. Every decision comes from index_scan.py
 (sigma_at, bands, target), so the rule traded here is the rule that was tested.
 
-    python -u noise_bot.py run         # one session: plan 09:47, trade 10:00-15:30, MOC exit
+    python -u noise_bot.py run         # one session: plan 09:47, trade 10:00-15:30, exit 15:58
     python -u noise_bot.py status      # account, position, recent ledger rows (read-only)
     python -u noise_bot.py reconcile   # Stage A numbers vs the SIP shadow (index_scan.py fetch first)
 
@@ -11,8 +11,10 @@ Refuses to place a single order unless ALL of these hold:
   * paper endpoint (hard-coded) and ALPACA_PAPER=true in this checkout's .env;
   * NOISE_ACCOUNT in .env equals the account the keys open (setup-noise.sh writes it);
   * the account holds nothing, and has no open orders, in any symbol but QQQ.
-Never holds overnight: market-on-close sent after 15:30, market fallback at 15:58, verified
-flat at 16:05. `touch state/NOISE_DISARMED` skips sessions.
+Never holds overnight, never stacks orders: market orders close the position from 15:58,
+each one filled or cancelled-and-confirmed before the next is sent; verified flat at 16:05.
+Anything still held then is alerted and left for the next morning, never queued after hours.
+`touch state/NOISE_DISARMED` skips sessions.
 
 This is not the ORB bot and never imports it: ORB's flatten-all would close these trades.
 """
@@ -35,8 +37,16 @@ from index_scan import CHECKPOINTS, ET, LOOKBACK
 SYMBOL = "QQQ"
 NOTIONAL = 10_000          # dollars per position, fixed (PREREG build list)
 PLAN_AT = dtime(9, 47)     # SIP's 09:30 bar is past the free feed's 15-minute delay
-FALLBACK_AT = dtime(15, 58)
+# Close-out (2026-11-01 fix). Market-on-close is gone: on 2026-10-30 an MOC for 14 filled 9
+# in the auction and expired the rest at 16:02, a partial fill nothing could see or repair
+# before the close. Regular-hours market orders from 15:58 can be watched and retried.
+EXIT_AT = dtime(15, 58)
+EXIT_DEADLINE = dtime(15, 59, 40)  # no new closing order after this: it might not fill by 16:00
 VERIFY_AT = dtime(16, 5)
+FILL_WAIT_S = 20           # one closing attempt; then cancel it and confirm before retrying
+CANCEL_WAIT_S = 10
+TERMINAL = frozenset({"filled", "canceled", "cancelled", "expired", "rejected", "done_for_day"})
+LEDGER_V = 2               # close rows written by the fixed close-out; Stage A counts from here
 STALE_S = 120              # an IEX trade older than this is not a price
 HISTORY_DAYS = 45          # calendar days of SIP bars: comfortably > 14 full sessions
 LEDGER = Path("state/noise_ledger.csv")
@@ -84,26 +94,35 @@ class AlpacaPaper:
             out[p.symbol] = -abs(float(p.qty)) if "short" in side else abs(float(p.qty))
         return out
 
-    def open_order_symbols(self) -> set[str]:
+    def _open_orders(self):
         from alpaca.trading.enums import QueryOrderStatus
         from alpaca.trading.requests import GetOrdersRequest
-        return {o.symbol for o in self.trading.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))}
+        return self.trading.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
 
-    def market(self, side: str, qty: int, at_close: bool = False) -> str:
+    def open_order_symbols(self) -> set[str]:
+        return {o.symbol for o in self._open_orders()}
+
+    def open_order_ids(self) -> list[str]:
+        """Working QQQ orders, queued pre-open or after-hours ones included."""
+        return [str(o.id) for o in self._open_orders() if o.symbol == SYMBOL]
+
+    def market(self, side: str, qty: int) -> str:
         from alpaca.trading.enums import OrderSide, TimeInForce
         from alpaca.trading.requests import MarketOrderRequest
         req = MarketOrderRequest(symbol=SYMBOL, qty=qty,
                                  side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
-                                 time_in_force=TimeInForce.CLS if at_close else TimeInForce.DAY)
+                                 time_in_force=TimeInForce.DAY)
         return str(self.trading.submit_order(order_data=req).id)
 
     def order(self, oid: str) -> tuple[str, float]:
         o = self.trading.get_order_by_id(oid)
         return getattr(o.status, "value", str(o.status)).lower(), float(o.filled_avg_price or 0)
 
-    def flatten(self) -> None:
-        """Last resort, this account only (QQQ is all it may hold)."""
-        self.trading.close_all_positions(cancel_orders=True)
+    def filled(self, oid: str) -> float:
+        return float(self.trading.get_order_by_id(oid).filled_qty or 0)
+
+    def cancel(self, oid: str) -> None:
+        self.trading.cancel_order_by_id(oid)
 
     def latest_trade(self) -> tuple[float, datetime]:
         from alpaca.data.enums import DataFeed
@@ -203,19 +222,47 @@ def orders_for(pos: int, new: int, held: float, price: float) -> list[tuple[str,
     return out
 
 
-def wait_fill(broker, oid: str, timeout_s: float = 30) -> float | None:
-    deadline = time.monotonic() + timeout_s
+def _status(broker, oid: str) -> tuple[str, float]:
+    try:
+        return broker.order(oid)
+    except Exception as e:  # noqa: BLE001
+        log.warning("order %s lookup failed: %s", oid, e)
+        return "unknown", 0.0
+
+
+def wait_fill(broker, clock, oid: str, timeout_s: float = 30) -> float | None:
+    """Fill price, or None if the order ended unfilled or is still working at the deadline."""
+    deadline = clock.now() + timedelta(seconds=timeout_s)
     while True:
-        try:
-            status, price = broker.order(oid)
-        except Exception as e:  # noqa: BLE001
-            log.warning("order %s lookup failed: %s", oid, e)
-            status, price = "unknown", 0.0
+        status, price = _status(broker, oid)
         if status == "filled" and price > 0:
             return price
-        if status in ("canceled", "cancelled", "expired", "rejected") or time.monotonic() > deadline:
+        if status in TERMINAL or clock.now() >= deadline:
             return None
-        time.sleep(1)
+        clock.sleep_until(clock.now() + timedelta(seconds=1))
+
+
+def settle_cancel(broker, clock, oid: str) -> str:
+    """Cancel and wait until the order is dead (or filled). Returns its final status.
+
+    A status outside TERMINAL means the cancel wasn't confirmed: the caller must not send
+    another order for the same shares, or both could fill.
+    """
+    try:
+        broker.cancel(oid)
+    except Exception as e:  # noqa: BLE001  (it may have filled a moment ago)
+        log.warning("cancel %s failed: %s", oid, e)
+    deadline = clock.now() + timedelta(seconds=CANCEL_WAIT_S)
+    while True:
+        status = _status(broker, oid)[0]
+        if status in TERMINAL or clock.now() >= deadline:
+            return status
+        clock.sleep_until(clock.now() + timedelta(seconds=1))
+
+
+def cancel_open(broker, clock) -> list[list[str]]:
+    """Cancel every working QQQ order and confirm each; returns [[order id, final status]]."""
+    return [[oid, settle_cancel(broker, clock, oid)] for oid in broker.open_order_ids()]
 
 
 # ---------------------------------------------------------------- one session
@@ -254,6 +301,12 @@ def run(broker=None, clock=None, expected_account: str | None = None) -> int:
         return 2
 
     open_dt = _at(today, dtime(9, 30))
+    # A working order at startup is never this session's: an after-hours close queued by an
+    # older 16:05 path, or one left by a crash. Kill it before acting, or it fills on top.
+    for oid, status in cancel_open(broker, clock):
+        log.warning("cancelled leftover order %s at startup (%s)", oid, status)
+        notify("leftover order", f"cancelled working order {oid} at startup ({status})", "high")
+    held = broker.positions()
     pos = _sign(held.get(SYMBOL, 0.0))
     if pos and now < open_dt:
         # an overnight leftover: E16 never holds overnight, so close it at the open
@@ -262,8 +315,14 @@ def run(broker=None, clock=None, expected_account: str | None = None) -> int:
         notify("leftover position", f"{held[SYMBOL]} {SYMBOL} carried overnight; closing at the open", "high")
         oid = broker.market(side, qty)
         clock.sleep_until(open_dt + timedelta(minutes=1))
-        wait_fill(broker, oid)
+        if wait_fill(broker, clock, oid) is None:
+            settle_cancel(broker, clock, oid)
         pos = _sign(broker.positions().get(SYMBOL, 0.0))
+        if pos:
+            msg = f"leftover still held after the open ({broker.positions()}): not trading today"
+            log.error(msg)
+            notify("REFUSED", msg, "urgent")
+            return 2
     log.info("E16 session %s on account %s, starting position %+d", day, acct, pos)
 
     clock.sleep_until(_at(today, PLAN_AT))
@@ -304,11 +363,12 @@ def run(broker=None, clock=None, expected_account: str | None = None) -> int:
         if new != pos:
             for side, qty in orders_for(pos, new, broker.positions().get(SYMBOL, 0.0), price):
                 oid = broker.market(side, qty)
-                fill = wait_fill(broker, oid)
+                fill = wait_fill(broker, clock, oid)
                 done.append([side, qty, fill, oid])
                 if fill is None:
-                    log.error("%s %s %s did not fill", side, qty, SYMBOL)
-                    notify("order not filled", f"{row['checkpoint']} {side} {qty}: check the account", "high")
+                    status = settle_cancel(broker, clock, oid)   # never leave it working
+                    log.error("%s %s %s did not fill (%s)", side, qty, SYMBOL, status)
+                    notify("order not filled", f"{row['checkpoint']} {side} {qty}: {status}", "high")
                     break
             pos = _sign(broker.positions().get(SYMBOL, 0.0))   # the broker is the truth
         row.update(price=f"{price:.4f}", price_time=ts.strftime("%H:%M:%S"), pos_after=pos,
@@ -320,42 +380,46 @@ def run(broker=None, clock=None, expected_account: str | None = None) -> int:
 
 
 def _close_out(broker, clock, today: date, pos: int) -> int:
-    """MOC now, market fallback at 15:58, verify flat at 16:05. Never holds overnight."""
+    """Close with market orders from 15:58; verify flat at 16:05. Never holds overnight.
+
+    One closing order works at a time: each attempt fills, or is cancelled and confirmed
+    dead, before the next is sent, so a stalled order and its retry can never both fill.
+    If the account is still not flat at 16:05, nothing is queued after hours (an after-hours
+    close would fill at the next open on top of the morning's own close). Working orders are
+    cancelled, the alert is urgent, and the next session's startup closes the leftover.
+    """
     day = today.isoformat()
-    moc = None
-    if pos:
-        held = broker.positions().get(SYMBOL, 0.0)
-        side, qty = orders_for(_sign(held), 0, held, 1.0)[0]
-        try:
-            moc = broker.market(side, qty, at_close=True)
-            log.info("market-on-close %s %s sent (%s)", side, qty, moc)
-        except Exception as e:  # noqa: BLE001
-            log.warning("MOC rejected (%s): the 15:58 fallback will close", e)
-    clock.sleep_until(_at(today, FALLBACK_AT))
-    held = broker.positions().get(SYMBOL, 0.0)
-    fallback = None
-    if held:
-        moc_status = broker.order(moc)[0] if moc else "none"
-        if moc_status in ("none", "canceled", "cancelled", "expired", "rejected"):
-            side, qty = orders_for(_sign(held), 0, held, 1.0)[0]
-            fallback = broker.market(side, qty)
-            log.warning("MOC %s: market fallback %s %s", moc_status, side, qty)
-            wait_fill(broker, fallback)
-    clock.sleep_until(_at(today, VERIFY_AT))
+    clock.sleep_until(_at(today, EXIT_AT))
+    stray = cancel_open(broker, clock)            # nothing may fill on top of the exit
     exits = []
-    for oid in (moc, fallback):
-        if oid:
-            status, price = broker.order(oid)
-            exits.append([status, price, oid])
-    flat = not broker.positions()
+    while clock.now() < _at(today, EXIT_DEADLINE):
+        held = broker.positions().get(SYMBOL, 0.0)
+        if not held:
+            break
+        side, qty = orders_for(_sign(held), 0, held, 1.0)[0]
+        at = clock.now()
+        oid = broker.market(side, qty)
+        status = "filled" if wait_fill(broker, clock, oid, FILL_WAIT_S) else settle_cancel(broker, clock, oid)
+        price = _status(broker, oid)[1]
+        exits.append({"side": side, "qty": qty, "at": at.strftime("%H:%M:%S"), "status": status,
+                      "price": price, "filled": broker.filled(oid), "oid": oid})
+        log.info("close %s %s at %s: %s %s", side, qty, exits[-1]["at"], status, price or "")
+        if status not in TERMINAL:
+            log.error("closing order %s still %s after cancel: no further attempts", oid, status)
+            break
+    clock.sleep_until(_at(today, VERIFY_AT))
+    held = broker.positions().get(SYMBOL, 0.0)
+    stray += cancel_open(broker, clock)
+    flat = not held
     if not flat:
-        log.error("NOT FLAT at 16:05: flattening this account")
-        broker.flatten()
-        notify("NOT FLAT", "positions remained at 16:05 and were flattened", "urgent")
-        flat = not broker.positions()
-    filled = [e[1] for e in exits if e[1]]
+        msg = (f"{held:+g} {SYMBOL} still held at 16:05. Nothing queued after hours; "
+               "the next session's startup closes it at the open. Check the account.")
+        log.error("NOT FLAT: %s", msg)
+        notify("NOT FLAT", msg, "urgent")
+    filled = [e["price"] for e in exits if e["price"]]
     _ledger({"day": day, "checkpoint": "close", "pos_before": pos, "pos_after": 0 if flat else "?",
-             "orders": json.dumps(exits), "price": f"{filled[0]:.4f}" if filled else ""})
+             "orders": json.dumps({"v": LEDGER_V, "exits": exits, "cancelled": stray}),
+             "price": f"{filled[0]:.4f}" if filled else ""})
     trades = sum(1 for r in _rows(day) if r["orders"].startswith("[["))
     notify("session done", f"{day}: {trades} decision(s) traded, flat={flat}")
     log.info("session %s done: flat=%s", day, flat)
@@ -401,16 +465,43 @@ def shadow_path(ss: list, day: str):
     return None
 
 
+def _close_record(row: dict | None):
+    """A fixed-code close row's {"v", "exits", "cancelled"}, or None for older rows."""
+    try:
+        rec = json.loads((row or {}).get("orders") or "null")
+    except ValueError:
+        return None
+    return rec if isinstance(rec, dict) and rec.get("v", 0) >= LEDGER_V else None
+
+
+def _sip_at(s, hhmmss: str) -> float:
+    """SIP price at the minute an exit was sent (same-minute reference, as for entries)."""
+    hh, mm = int(hhmmss[:2]), int(hhmmss[3:5])
+    m = hh * 60 + mm - 570
+    return s.p(m) if 1 <= m <= 389 else s.close
+
+
 def reconcile() -> int:
-    """Stage A: coverage, decision agreement with the SIP shadow, and slippage per side."""
+    """Stage A: coverage, decision agreement with the SIP shadow, and slippage per side.
+
+    Stage A restarts with the fixed close-out (PREREG change log, 2026-11-01): it counts
+    from the first session whose close row the fixed code wrote, and every later session.
+    """
     rows = _rows()
     if not rows:
         print("ledger is empty")
         return 0
+    all_days = sorted({r["day"] for r in rows})
+    fixed = [d for d in all_days if _close_record(next(
+        (r for r in _rows(d) if r["checkpoint"] == "close"), None))]
+    if not fixed:
+        print(f"E16 Stage A: restarts with the first fixed-code session; none yet "
+              f"({len(all_days)} pre-fix session(s) ignored)")
+        return 0
+    days = [d for d in all_days if d >= fixed[0]]
     ss = ix.sessions(ix.load((SYMBOL,))[SYMBOL])
-    days = sorted({r["day"] for r in rows})
     agree = total = covered = flat_days = 0
-    slips = []
+    slips, timing = [], []
     for day in days:
         mine = {r["checkpoint"]: r for r in _rows(day)}
         covered += sum(1 for r in mine.values() if r["checkpoint"] != "close"
@@ -431,18 +522,23 @@ def reconcile() -> int:
             for side, qty, fill, _ in json.loads(r["orders"] or "[]"):
                 if fill:
                     slips.append((fill / ref - 1) if side == "buy" else (1 - fill / ref))
-        for status_, price, _ in json.loads(mine.get("close", {}).get("orders") or "[]"):
-            if price:
-                # exits: a buy-to-cover pays above the close, a sell receives below it
-                side = "buy" if int(mine["close"]["pos_before"]) < 0 else "sell"
-                slips.append((price / s.close - 1) if side == "buy" else (1 - price / s.close))
+        rec = _close_record(mine.get("close")) or {"exits": []}
+        for e in rec["exits"]:
+            if e["filled"] and e["price"]:
+                ref, sgn = _sip_at(s, e["at"]), (1 if e["side"] == "buy" else -1)
+                slips.append(sgn * (e["price"] / ref - 1))      # cost: same-minute SIP price
+                timing.append(sgn * (e["price"] / s.close - 1))  # vs the shadow's close: not a cost
     n = len(days)
     mean_slip = sum(slips) / len(slips) * 1e4 if slips else float("nan")
-    print(f"E16 Stage A: {n} sessions, full coverage {covered}/{n}, verified flat {flat_days}/{n}")
+    print(f"E16 Stage A (from {days[0]}, {len(all_days) - n} pre-fix session(s) ignored): "
+          f"{n} sessions, full coverage {covered}/{n}, verified flat {flat_days}/{n}")
     print(f"  decision agreement with SIP shadow: {agree}/{total} "
           f"({agree / total:.1%})" if total else "  no comparable checkpoints yet")
     print(f"  adverse slippage per side: mean {mean_slip:+.2f} bp over {len(slips)} fills "
           f"(gate <= 2 bp; c* = max(0.5, this))")
+    if timing:
+        print(f"  exit timing vs the shadow's close (not a cost): mean "
+              f"{sum(timing) / len(timing) * 1e4:+.2f} bp over {len(timing)} exits")
     if n >= 20:
         ok = covered >= 19 and flat_days == n and total and agree / total >= 0.95 and mean_slip <= 2
         print(f"  STAGE A {'PASS' if ok else 'FAIL'} (criterion 4, isolation, is checked by hand)")

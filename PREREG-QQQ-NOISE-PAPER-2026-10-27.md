@@ -168,3 +168,37 @@ on the VPS. Account creation isn't something I do.
 - `noise_bot.py` (the paper runner), its tests (`tests/test_noise_bot.py`), the systemd units
   and `deploy/setup-noise.sh` were built to the build list above. Stage A starts on the
   runner's first session.
+
+**2026-11-01: close-out fix. A mechanics fix, not a rule change.** Details:
+`ANALYSIS-2026-11-01-e16-closeout.md`.
+- **What broke (2026-10-30).** The runner went short 14 QQQ at 10:30 and sent a market-on-close
+  buy at 15:30. The closing auction filled 9 shares and expired the other 5 at 16:02. A partial
+  MOC fill can't be seen before 16:00, so the 15:58 fallback (which only fired on a terminal
+  MOC) never ran. At 16:05 `close_all_positions` queued a buy of 5 for the next open, and the
+  short 5 was carried over the weekend.
+- **The runner's exit is now market orders from 15:58** instead of the MOC sent at 15:30.
+  - Each attempt either fills or is cancelled and confirmed dead before the next is sent.
+    The last attempt starts by 15:59:40.
+  - At 16:05, if the account isn't flat, working orders are cancelled, an urgent alert goes
+    out, and **nothing is queued after hours**.
+  - At startup the runner cancels every working QQQ order before acting, closes any leftover
+    at the open, and refuses to trade that day if the leftover is still there.
+- **The rule and the evidence are unchanged.** The decisions are still
+  `index_scan.sigma_at/bands/target`. The SIP shadow record, which is the E16 evidence, still
+  exits at the close.
+- **Stage A criterion 3 is amended**, before any fixed-code session exists.
+  - Was: "Exits fill at the close."
+  - Now: **exits fill by market order between 15:58 and 16:00, and exit slippage is measured
+    against the SIP price in the minute the order was sent**, the same-minute comparison
+    already used for entries. The drift from that price to the close is reported separately
+    and is not a cost.
+  - Why: over 2016–2026 the close minus P(15:58) on QQQ averages +0.13 bp with a 10.6 bp SD.
+    Measured against the close, a 2 bp gate would be noise.
+  - Why the earlier exit doesn't matter for the rule: in E15's holdout, exiting H3 at 15:58
+    rather than the close changes the mean by −0.32 bp per active session (SD 8.5, n = 713),
+    within noise and small next to the +11.8 bp being tested.
+  - The ≤ 2 bp gate and `c* = max(0.5 bp, measured)` stand.
+- **Stage A restarts** from the first session run by the fixed code, as this PREREG requires
+  after a mechanics fix. `reconcile` finds that session by its close row (`"v": 2`) and counts
+  every session from there. 2026-10-28, 10-29 and 10-30 are excluded from Stage A. They remain
+  in the shadow record, which never depended on execution.
