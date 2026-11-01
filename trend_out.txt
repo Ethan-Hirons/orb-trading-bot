@@ -1,0 +1,69 @@
+E18 trend-following. Data downloaded 2026-11-01T21:23:30+00:00. Scored 2008-01-02 -> 2026-10-30, halves split at 2017-06-01.
+
+== 5 bp per side (scored)
+  T1   full   CAGR +4.37%  vol  7.1%  Sharpe  0.45  maxDD -11.7%  worst 12m  -8.3%
+       2008-01..2017-06 CAGR +2.55%  vol  7.6%  Sharpe  0.35  maxDD -11.7%  worst 12m  -8.3%
+       2017-06..2026-10 CAGR +6.22%  vol  6.6%  Sharpe  0.58  maxDD  -7.0%  worst 12m  -6.9%
+  T2   full   CAGR +4.57%  vol  7.1%  Sharpe  0.48  maxDD -10.6%  worst 12m  -9.3%
+       2008-01..2017-06 CAGR +3.63%  vol  7.5%  Sharpe  0.49  maxDD  -9.8%  worst 12m  -6.6%
+       2017-06..2026-10 CAGR +5.52%  vol  6.7%  Sharpe  0.47  maxDD -10.6%  worst 12m  -9.3%
+  EW   full   CAGR +6.04%  vol 12.3%  Sharpe  0.43  maxDD -37.5%  worst 12m -33.5%
+       2008-01..2017-06 CAGR +4.28%  vol 14.0%  Sharpe  0.35  maxDD -37.5%  worst 12m -33.5%
+       2017-06..2026-10 CAGR +7.83%  vol 10.4%  Sharpe  0.54  maxDD -20.6%  worst 12m -18.7%
+  6040 full   CAGR +8.23%  vol 11.1%  Sharpe  0.65  maxDD -31.4%  worst 12m -27.9%
+       2008-01..2017-06 CAGR +7.21%  vol 11.2%  Sharpe  0.65  maxDD -31.4%  worst 12m -27.9%
+       2017-06..2026-10 CAGR +9.25%  vol 10.9%  Sharpe  0.64  maxDD -21.2%  worst 12m -17.8%
+
+== 20 bp per side (stress)
+  T1   full   CAGR +3.81%  vol  7.1%  Sharpe  0.38  maxDD -12.0%  worst 12m  -8.9%
+       2008-01..2017-06 CAGR +2.02%  vol  7.6%  Sharpe  0.28  maxDD -12.0%  worst 12m  -8.9%
+       2017-06..2026-10 CAGR +5.62%  vol  6.6%  Sharpe  0.50  maxDD  -8.2%  worst 12m  -7.5%
+  T2   full   CAGR +4.16%  vol  7.1%  Sharpe  0.43  maxDD -10.7%  worst 12m  -9.7%
+       2008-01..2017-06 CAGR +3.26%  vol  7.5%  Sharpe  0.44  maxDD  -9.9%  worst 12m  -6.9%
+       2017-06..2026-10 CAGR +5.07%  vol  6.7%  Sharpe  0.41  maxDD -10.7%  worst 12m  -9.7%
+  EW   full   CAGR +5.98%  vol 12.3%  Sharpe  0.43  maxDD -37.5%  worst 12m -33.6%
+       2008-01..2017-06 CAGR +4.22%  vol 14.0%  Sharpe  0.35  maxDD -37.5%  worst 12m -33.6%
+       2017-06..2026-10 CAGR +7.78%  vol 10.4%  Sharpe  0.54  maxDD -20.6%  worst 12m -18.8%
+  6040 full   CAGR +8.19%  vol 11.1%  Sharpe  0.65  maxDD -31.4%  worst 12m -27.9%
+       2008-01..2017-06 CAGR +7.17%  vol 11.2%  Sharpe  0.65  maxDD -31.4%  worst 12m -27.9%
+       2017-06..2026-10 CAGR +9.22%  vol 10.9%  Sharpe  0.64  maxDD -21.2%  worst 12m -17.8%
+
+== year by year, 5 bp (calendar years; 2008 starts at the first trade)
+  year        T1       T2       EW     6040
+  2008     -2.0%    +0.9%   -19.1%   -17.5%
+  2009    +12.7%    +3.0%   +20.6%   +13.2%
+  2010     +6.2%   +13.1%   +16.9%   +13.5%
+  2011     +2.2%    +1.8%    +5.0%    +7.9%
+  2012     -1.5%    +5.4%   +11.6%   +11.3%
+  2013     +2.3%    +3.2%    -1.3%   +15.6%
+  2014     +2.7%    +5.1%    +4.0%   +11.9%
+  2015     -4.7%    -1.6%    -6.3%    +1.7%
+  2016     +2.7%    -1.2%    +8.2%    +7.7%
+  2017    +10.3%   +11.3%   +14.5%   +13.7%
+  2018     -2.5%    -6.5%    -6.3%    -2.0%
+  2019     +7.7%   +10.0%   +19.4%   +21.8%
+  2020    +10.3%    +1.6%   +12.0%   +16.6%
+  2021    +11.2%    +9.7%   +12.5%   +15.1%
+  2022     -4.4%    -3.2%   -13.7%   -16.6%
+  2023     +1.0%    +4.5%    +9.9%   +16.8%
+  2024     +6.3%    +4.9%    +7.4%   +14.2%
+  2025    +16.7%   +18.4%   +20.3%   +13.9%
+  2026     +8.2%    +8.8%    +9.6%    +6.4%
+
+== signal changes (scored period): T1 289 slot switches over 226 rebalances, T2 200 slot switches over 226 rebalances
+
+== pre-registered criteria vs EW, 5 bp
+  T1: (a) maxDD -11.7% vs limit -26.2% PASS;  (b) CAGR +4.37% vs floor +4.54% FAIL;  (c) Sharpe 0.45 vs 0.43 PASS
+      half 2008-01..2017-06: (a) PASS  (b) FAIL  (c) FAIL
+      half 2017-06..2026-10: (a) PASS  (b) FAIL  (c) PASS
+  >>> T1: FAIL
+  T2: (a) maxDD -10.6% vs limit -26.2% PASS;  (b) CAGR +4.57% vs floor +4.54% PASS;  (c) Sharpe 0.48 vs 0.43 PASS
+      half 2008-01..2017-06: (a) PASS  (b) PASS  (c) PASS
+      half 2017-06..2026-10: (a) PASS  (b) FAIL  (c) FAIL
+  >>> T2: FAIL
+
+== descriptive only, 2007-03-01 -> 2007-12-31 (5 bp)
+  T1   total +14.0%  maxDD  -5.5%
+  T2   total +13.1%  maxDD  -4.9%
+  EW   total +12.4%  maxDD  -6.0%
+  6040 total  +7.1%  maxDD  -4.5%

@@ -1,0 +1,39 @@
+downloaded 2026-11-01T21:23:30+00:00
+SPY  1993-01-29 -> 2026-10-30  8497 days  dividends 136  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: none
+     raw close |daily| > 15%: none
+     2008->now: adj +634% vs raw +421%, gap +1.83%/yr (~ dividend yield)
+EFA  2001-08-27 -> 2026-10-30  6332 days  dividends 47  splits [['2005-06-09', '3.0:1.0']]  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: [('2008-10-13', '+15.9%')]
+     raw close |daily| > 15%: [('2008-10-13', '+15.9%')]
+     2008->now: adj +131% vs raw +32%, gap +3.00%/yr (~ dividend yield)
+EEM  2003-04-14 -> 2026-10-30  5926 days  dividends 47  splits [['2005-06-09', '3.0:1.0'], ['2008-07-24', '3.0:1.0']]  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: [('2008-10-13', '+22.8%'), ('2008-10-15', '-16.2%'), ('2008-10-28', '+20.9%')]
+     raw close |daily| > 15%: [('2008-10-13', '+22.8%'), ('2008-10-15', '-16.2%'), ('2008-10-28', '+20.9%')]
+     2008->now: adj +83% vs raw +24%, gap +2.09%/yr (~ dividend yield)
+IEF  2002-07-30 -> 2026-10-30  6104 days  dividends 291  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: none
+     raw close |daily| > 15%: none
+     2008->now: adj +66% vs raw +5%, gap +2.49%/yr (~ dividend yield)
+TLT  2002-07-30 -> 2026-10-30  6104 days  dividends 289  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: none
+     raw close |daily| > 15%: none
+     2008->now: adj +54% vs raw -13%, gap +3.10%/yr (~ dividend yield)
+GLD  2004-11-18 -> 2026-10-30  5522 days  dividends 0  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: none
+     raw close |daily| > 15%: none
+     2008->now: adj +319% vs raw +319%, gap +0.00%/yr (~ dividend yield)
+DBC  2006-02-06 -> 2026-10-30  5217 days  dividends 9  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: none
+     raw close |daily| > 15%: none
+     2008->now: adj +25% vs raw +4%, gap +0.98%/yr (~ dividend yield)
+VNQ  2004-09-29 -> 2026-10-30  5558 days  dividends 88  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: [('2008-10-28', '+15.6%'), ('2008-11-24', '+17.0%'), ('2008-12-01', '-19.5%'), ('2009-03-23', '+16.2%'), ('2020-03-16', '-17.7%')]
+     raw close |daily| > 15%: [('2008-10-28', '+15.6%'), ('2008-11-24', '+17.0%'), ('2008-12-01', '-19.5%'), ('2009-03-23', '+16.2%'), ('2020-03-16', '-17.7%')]
+     2008->now: adj +232% vs raw +53%, gap +4.20%/yr (~ dividend yield)
+BIL  2007-05-30 -> 2026-10-30  4888 days  dividends 128  splits [['2017-11-30', '1.0:2.0']]  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+     adjclose |daily| > 15%: none
+     raw close |daily| > 15%: none
+     2008->now: adj +28% vs raw +0%, gap +1.31%/yr (~ dividend yield)
+^IRX 1970-01-02 -> 2026-10-30  14228 days  dividends 0  splits none  [yahoo chart v8 (adjclose: split+dividend adjusted)]
+aligned on SPY: 1993-01-29 -> 2026-10-30; first day each ETF has a price: SPY 1993-01-29, EFA 2001-08-27, EEM 2003-04-14, IEF 2002-07-30, TLT 2002-07-30, GLD 2004-11-18, DBC 2006-02-06, VNQ 2004-09-29

@@ -128,6 +128,17 @@ earns an implementation section in the report. Neither one earns a trading bot y
 
 ---
 
-## Results
+## Results (run once, 2026-11-01; output in `trend_out.txt`, data checks in `trend_check.txt`)
 
-*(appended after the run)*
+**Data:** Yahoo chart API, downloaded 2026-11-01 21:23:30 UTC. All checks passed. **Scored
+period:** 2008-01-02 → 2026-10-30; halves split at 2017-06-01.
+
+| 5 bp | CAGR | Sharpe | max DD | (a) | (b) | (c) | (d) halves | verdict |
+|---|---|---|---|---|---|---|---|---|
+| T1 | 4.37% | 0.45 | −11.7% | ✅ | ❌ (floor 4.54%) | ✅ | ❌ | **FAIL** |
+| T2 | 4.57% | 0.48 | −10.6% | ✅ | ✅ (by 0.03 pp) | ✅ | ❌ (2017–26: CAGR 5.52% vs 6.33%, Sharpe 0.47 vs 0.54) | **FAIL** |
+| EW | 6.04% | 0.43 | −37.5% | | | | | benchmark |
+| 60/40 | 8.23% | 0.65 | −31.4% | | | | | reported |
+
+**Neither variant passes: closed as written above.** There's no implementation section. Analysis
+is in `ANALYSIS-2026-11-01-trend.md`.

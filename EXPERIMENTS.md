@@ -537,6 +537,7 @@ reason it fails is concentration, and only a validated harness could show it.
 | 2026-10-27 | E16 drafted | shadow + paper | — | QQQ noise-area forward test; gate fixed before 2026-10-28 | **DRAFT**, awaiting Ethan's approval |
 | 2026-10-30 | E16 close-out failure | paper | 1 | MOC filled 9/14, rest expired; 16:05 flatten queued a buy for the next open; short 5 carried | **FIXED** 8ff7538 (market exit from 15:58, nothing queued after hours); Stage A restarts |
 | 2026-11-01 | E17 mechanism test | sim | 6 new ETFs | (a) treatment +4.7 bp p=0.056 FAIL; (b) +8.3 PASS; (c) ρ +0.64 PASS. SMH/XLK work, XLF loses | **NOT SUPPORTED**; E16 unchanged, its mechanism claim weakened |
+| 2026-11-01 | E18 trend-following | sim | 2008–2026 | maxDD −11.7% (T1) / −10.6% (T2) vs EW −37.5%; CAGR 4.37% / 4.57% vs EW 6.04%; T2 fails 2017–26 half | **FAIL both**; closed, no implementation |
 
 
 ## E14 — Edge scan: does the entry signal have drift at all?  ⛔ NO. Read this before opening E15.
@@ -617,3 +618,21 @@ XLV/XLU/XLP (small). The predictor is R = Σ AUM × (L² − L) / ADV$.
 
 **Post-hoc:** XLK's results correlate 0.87 with QQQ's. The pattern looks like large-cap tech and
 semis, not leveraged flow, and every low-flow ETF loses. **E16 is unchanged.**
+
+
+## E18: monthly trend-following across asset-class ETFs  ⛔ FAIL (both variants)
+
+**Run 2026-11-01.** Pre-registered in `PREREG-TREND-2026-11-01.md` (committed `a4b0fd6` with
+`trend.py` before any data), analysis in `ANALYSIS-2026-11-01-trend.md`.
+
+**Design:** 8 ETFs (SPY, EFA, EEM, IEF, TLT, GLD, DBC, VNQ), each a 1/8 slot, held or in cash
+(BIL). T1 is Faber's 10-month SMA; T2 is 12-month momentum against cash. Scored 2008-01 →
+2026-10 against an equal-weight buy-and-hold.
+
+**Results:**
+- **Drawdown:** T1 −11.7% and T2 −10.6%, against EW's −37.5%. That's the drawdown goal met
+  easily.
+- **Return:** T1's CAGR missed the bar by 0.17 pp. T2 passed the full period by 0.03 pp, then
+  failed the 2017–2026 half on both CAGR and Sharpe.
+
+**Closed: no re-run on other lookbacks, weights or universes, and no bot.**
