@@ -194,6 +194,25 @@ def test_sip_end_respects_the_free_plan_embargo():
     print("PASS test_sip_end_respects_the_free_plan_embargo")
 
 
+def test_mechanism_statistics():
+    # Spearman: perfect, reversed, and tied ranks
+    assert abs(ix.spearman([1, 2, 3, 4], [10, 20, 30, 40]) - 1) < 1e-12
+    assert abs(ix.spearman([1, 2, 3, 4], [4, 3, 2, 1]) + 1) < 1e-12
+    assert abs(ix.spearman([1, 2, 3], [5, 5, 9]) - 0.8660254) < 1e-6
+    # day-clustered bootstrap: a clearly positive pool has p ~ 0, a negative one p ~ 1
+    pos = [{"day": f"d{i}", "r": 0.001 + (0.0001 if i % 2 else -0.0001)} for i in range(40)]
+    m, lo, hi, p = ix.boot_days(pos, n=500)
+    assert m > 0 and lo > 0 and p == 0
+    neg = [{"day": r["day"], "r": -r["r"]} for r in pos]
+    assert ix.boot_days(neg, n=500)[3] == 1
+    # rows sharing a day move together: two ETFs on 40 days count as 40 draws, not 80
+    twin = pos + [dict(r) for r in pos]
+    assert abs(ix.boot_days(twin, n=200)[0] - m) < 1e-15
+    d, dlo, dhi = ix.boot_days_diff(pos, neg, n=500)
+    assert abs(d - 2 * m) < 1e-12 and dlo > 0
+    print("PASS test_mechanism_statistics")
+
+
 def run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -135,6 +135,19 @@ holdout days than in E15.
 
 ---
 
-## Results
+## Results (run once, 2026-11-01; output in `mechanism_out.txt`)
 
-*(appended after the run)*
+Holdout 2022-01-03 → 2026-10-30, net bp per active session, 0.5 bp per side:
+
+| | result | |
+|---|---|---|
+| (a) pooled treatment (SMH, XLK, XLF) | +4.72 [−1.24, +10.77], one-sided **p = 0.0561** | **FAIL** |
+| (b) treatment − control | +8.31 [+1.84, +14.68] | PASS |
+| (c) Spearman(R, holdout mean), 10 ETFs | +0.636 | PASS |
+
+**Verdict: NOT SUPPORTED** ((a) failed). Per ETF in the holdout: SMH +12.46, XLK +10.47 (each
+CI above 0), **XLF −7.59** (CI below 0), XLV −4.79, XLU −3.35, XLP −2.64.
+
+**Meaning for E16, as fixed above:** no change to its rules or schedule. The prior that it
+passes drops, and no ETFs are added on this mechanism. Post-hoc observations, labelled as such,
+are in `ANALYSIS-2026-11-01-mechanism.md` and `mechanism_posthoc.txt`.

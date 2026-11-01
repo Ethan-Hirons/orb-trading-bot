@@ -4,6 +4,8 @@
     python -u index_scan.py check      # bar counts, early closes, gaps: data sanity only
     python -u index_scan.py report     # H1-H4, discovery and holdout side by side
     python -u index_scan.py forward    # E16: the frozen QQQ rule on sessions since 2026-10-28
+    python -u index_scan.py fetch_mech # E17: SMH/XLK/XLF/XLU/XLP/XLV -> .index_cache/mech/
+    python -u index_scan.py mechanism  # E17: the frozen rule per ETF vs the leveraged-flow ratio
 
 Nothing here touches config.yaml, the bot, or the broker. Read-only research.
 """
@@ -77,11 +79,12 @@ def sip_end(requested: datetime, now: datetime) -> datetime:
     return min(requested, now - SIP_DELAY)
 
 
-def fetch() -> None:
-    """One request per month for all four symbols; keeps regular-hours bars only.
+def fetch(symbols=SYMBOLS, cache=CACHE, calendar=True) -> None:
+    """One request per month for all the symbols; keeps regular-hours bars only.
 
     Each cached month is {symbol: {"YYYY-MM-DD": [(minute, o, h, l, c, v, vw), ...]}},
-    minute counted from 09:30. Only complete past months are cached.
+    minute counted from 09:30. Only complete past months are cached. The defaults are E15/E16's
+    four ETFs in `.index_cache/`; the mechanism test (E17) keeps its six in `.index_cache/mech/`.
     """
     from dotenv import load_dotenv
     from alpaca.data.enums import Adjustment, DataFeed
@@ -91,10 +94,10 @@ def fetch() -> None:
 
     load_dotenv()
     cli = StockHistoricalDataClient(os.environ["ALPACA_API_KEY"], os.environ["ALPACA_SECRET_KEY"])
-    CACHE.mkdir(exist_ok=True)
+    cache.mkdir(parents=True, exist_ok=True)
     today = date.today()
     for m0, m1 in _months(START, today):
-        path = CACHE / f"{m0:%Y-%m}.pkl"
+        path = cache / f"{m0:%Y-%m}.pkl"
         complete = m1 < today
         if complete and path.exists():
             continue
@@ -103,7 +106,7 @@ def fetch() -> None:
             datetime.now(timezone.utc),
         )
         req = StockBarsRequest(
-            symbol_or_symbols=list(SYMBOLS),
+            symbol_or_symbols=list(symbols),
             timeframe=TimeFrame(1, TimeFrameUnit.Minute),
             start=datetime.combine(m0, datetime.min.time(), tzinfo=timezone.utc),
             end=end,
@@ -112,7 +115,7 @@ def fetch() -> None:
         )
         data = cli.get_stock_bars(req).data
         month = {}
-        for sym in SYMBOLS:
+        for sym in symbols:
             days = {}
             for b in data.get(sym, []):
                 t = b.timestamp.astimezone(ET)
@@ -125,11 +128,12 @@ def fetch() -> None:
         if complete:
             path.write_bytes(pickle.dumps(month))
         else:
-            (CACHE / "partial.pkl").write_bytes(pickle.dumps(month))
+            (cache / "partial.pkl").write_bytes(pickle.dumps(month))
         note = "" if complete else f"  (partial, bars to {end.astimezone(ET):%Y-%m-%d %H:%M} ET)"
-        print(f"  {m0:%Y-%m}: " + "  ".join(f"{s} {len(month[s]):2d}d" for s in SYMBOLS)
+        print(f"  {m0:%Y-%m}: " + "  ".join(f"{s} {len(month[s]):2d}d" for s in symbols)
               + note, flush=True)
-    save_calendar(today + timedelta(days=400))
+    if calendar:
+        save_calendar(today + timedelta(days=400))
 
 
 def save_calendar(until: date) -> None:
@@ -158,13 +162,13 @@ def early_days() -> frozenset:
         return EARLY_CLOSES
 
 
-def load(symbols=SYMBOLS) -> dict[str, dict[str, list]]:
+def load(symbols=SYMBOLS, cache=CACHE) -> dict[str, dict[str, list]]:
     """{symbol: {day: bars sorted by minute}} across every cached month.
 
     Pass one symbol to hold only its bars in memory (the VPS needs only QQQ).
     """
     out = {s: {} for s in symbols}
-    for path in sorted(CACHE.glob("*.pkl")):
+    for path in sorted(cache.glob("*.pkl")):
         month = pickle.loads(path.read_bytes())
         for s in symbols:
             out[s].update(month.get(s, {}))
@@ -560,6 +564,129 @@ def report_forward() -> None:
     print(f"  VWAP-stop variant (descriptive)  active {len(vw):4d}  mean {_bp(_mean(vw))}")
 
 
+# ---------------------------------------------------------------- E17 mechanism test
+# PREREG-MECHANISM-2026-11-01.md. The frozen H3 rule (h3_rows) on six ETFs it has never
+# seen, scored against the leveraged-flow ratio R fixed in that PREREG before any data.
+
+MECH_CACHE = CACHE / "mech"
+TREATMENT = ("SMH", "XLK", "XLF")
+CONTROL = ("XLV", "XLU", "XLP")
+FLOW_R = {"SMH": 50.84, "XLK": 28.55, "QQQ": 11.29, "XLF": 8.53, "DIA": 4.92,
+          "SPY": 3.41, "IWM": 2.38, "XLV": 0.90, "XLU": 0.40, "XLP": 0.03}
+
+
+def boot_days(rows, n=10_000, seed=7):
+    """Pooled mean over ETFs, resampling trading DAYS so one day's sessions stay together.
+
+    Returns (mean, lo, hi, p) where p = share of resampled means <= 0 (one-sided).
+    """
+    by_day: dict[str, list[float]] = {}
+    for r in rows:
+        by_day.setdefault(r["day"], []).append(r["r"])
+    days = list(by_day)
+    if len(days) < 5:
+        return float("nan"), float("nan"), float("nan"), float("nan")
+    rng = random.Random(seed)
+    stats = []
+    for _ in range(n):
+        s = c = 0
+        for d in rng.choices(days, k=len(days)):
+            s += sum(by_day[d]); c += len(by_day[d])
+        stats.append(s / c)
+    stats.sort()
+    allv = [v for d in days for v in by_day[d]]
+    return _mean(allv), stats[int(0.025 * n)], stats[int(0.975 * n)], sum(x <= 0 for x in stats) / n
+
+
+def boot_days_diff(a_rows, b_rows, n=10_000, seed=11):
+    """mean(a) - mean(b), resampling the same trading days for both groups."""
+    def by_day(rows):
+        out: dict[str, list[float]] = {}
+        for r in rows:
+            out.setdefault(r["day"], []).append(r["r"])
+        return out
+    a, b = by_day(a_rows), by_day(b_rows)
+    days = sorted(set(a) | set(b))
+    rng = random.Random(seed)
+    stats = []
+    for _ in range(n):
+        sa = ca = sb = cb = 0
+        for d in rng.choices(days, k=len(days)):
+            xa, xb = a.get(d, []), b.get(d, [])
+            sa += sum(xa); ca += len(xa); sb += sum(xb); cb += len(xb)
+        if ca and cb:
+            stats.append(sa / ca - sb / cb)
+    stats.sort()
+    point = _mean([r["r"] for r in a_rows]) - _mean([r["r"] for r in b_rows])
+    return point, stats[int(0.025 * len(stats))], stats[int(0.975 * len(stats))]
+
+
+def spearman(xs, ys) -> float:
+    """Rank correlation, average ranks for ties."""
+    def ranks(v):
+        order = sorted(range(len(v)), key=lambda i: v[i])
+        r = [0.0] * len(v)
+        i = 0
+        while i < len(v):
+            j = i
+            while j + 1 < len(v) and v[order[j + 1]] == v[order[i]]:
+                j += 1
+            for k in range(i, j + 1):
+                r[order[k]] = (i + j) / 2 + 1
+            i = j + 1
+        return r
+    rx, ry = ranks(xs), ranks(ys)
+    mx, my = _mean(rx), _mean(ry)
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    den = (sum((a - mx) ** 2 for a in rx) * sum((b - my) ** 2 for b in ry)) ** 0.5
+    return num / den if den else float("nan")
+
+
+def fetch_mech() -> None:
+    fetch(TREATMENT + CONTROL, MECH_CACHE, calendar=False)
+
+
+def report_mechanism() -> None:
+    raw = {**load(), **load(TREATMENT + CONTROL, MECH_CACHE)}
+    data = {s: sessions(raw[s]) for s in FLOW_R}
+    last = min(data[s][-1].day for s in data)
+    print(f"E17 mechanism test: frozen H3 per ETF, net bp per ACTIVE session. "
+          f"Holdout {HOLDOUT_START} -> {last}")
+    hold_rows, hold_mean = {}, {}
+    for sym in sorted(FLOW_R, key=FLOW_R.get, reverse=True):
+        role = "treatment" if sym in TREATMENT else "control" if sym in CONTROL else "E15, seen"
+        active = [r for r in h3_rows(data[sym]) if r["active"] and r["day"] <= last]
+        print(f"\n {sym}  R = {FLOW_R[sym]:.2f}  [{role}]")
+        _row("  0.5 bp per side (scored)", active)
+        _row("  2 bp per side (stress)",
+             [r for r in h3_rows(data[sym], 2 * COST_HI) if r["active"] and r["day"] <= last])
+        post = [r["r"] for r in active if r["day"] >= PUBLISHED_H3]
+        mp, plo, phi = boot(post)
+        print(f"    post-publication {PUBLISHED_H3}+: n={len(post)} {_bp(mp)} [{_bp(plo)},{_bp(phi)}]")
+        _by_year(active)
+        hold_rows[sym] = [r for r in active if r["day"] >= HOLDOUT_START]
+        hold_mean[sym] = _mean([r["r"] for r in hold_rows[sym]])
+
+    treat = [r for s in TREATMENT for r in hold_rows[s]]
+    ctrl = [r for s in CONTROL for r in hold_rows[s]]
+    tm, tlo, thi, tp = boot_days(treat)
+    cm, clo, chi, _ = boot_days(ctrl)
+    dm, dlo, dhi = boot_days_diff(treat, ctrl)
+    order = sorted(FLOW_R)
+    rho = spearman([FLOW_R[s] for s in order], [hold_mean[s] for s in order])
+    a, b, c = tm > 0 and tp < 0.05, dm > 0, rho > 0
+    print("\nPre-registered criteria (holdout, 0.5 bp):")
+    print(f"  (a) pooled treatment n={len(treat)}  {_bp(tm)} [{_bp(tlo)},{_bp(thi)}]  "
+          f"one-sided p = {tp:.4f}  -> {'PASS' if a else 'FAIL'}")
+    print(f"      pooled control   n={len(ctrl)}  {_bp(cm)} [{_bp(clo)},{_bp(chi)}]")
+    print(f"  (b) treatment - control  {_bp(dm)} [{_bp(dlo)},{_bp(dhi)}]  -> {'PASS' if b else 'FAIL'}")
+    print(f"  (c) Spearman(R, holdout mean), 10 ETFs = {rho:+.3f}  -> {'PASS' if c else 'FAIL'}")
+    print(f"      holdout means: " + "  ".join(f"{s} {_bp(hold_mean[s]).strip()}"
+                                               for s in sorted(FLOW_R, key=FLOW_R.get, reverse=True)))
+    verdict = "SUPPORTED" if a and b and c else "PARTIAL" if a else "NOT SUPPORTED"
+    print(f"  >>> E17 mechanism: {verdict}")
+
+
 # ---------------------------------------------------------------- main
 
 def _sessions() -> dict[str, list[Session]]:
@@ -606,4 +733,5 @@ def posthoc() -> None:
 
 if __name__ == "__main__":
     {"fetch": fetch, "check": check, "report": report, "posthoc": posthoc,
-     "forward": report_forward}[sys.argv[1] if len(sys.argv) > 1 else "report"]()
+     "forward": report_forward, "fetch_mech": fetch_mech,
+     "mechanism": report_mechanism}[sys.argv[1] if len(sys.argv) > 1 else "report"]()

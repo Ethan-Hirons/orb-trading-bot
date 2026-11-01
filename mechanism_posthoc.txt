@@ -1,0 +1,9 @@
+POST-HOC (not scored)
+  Spearman(R, holdout mean), the six unseen ETFs only: +0.429
+  holdout same-day session returns, corr(SMH,XLK) = +0.71  (n=561 days both active)
+  holdout same-day session returns, corr(SMH,QQQ) = +0.67  (n=544 days both active)
+  holdout same-day session returns, corr(XLK,QQQ) = +0.87  (n=613 days both active)
+  holdout same-day session returns, corr(XLF,QQQ) = +0.38  (n=488 days both active)
+  holdout same-day session returns, corr(XLF,SPY) = +0.54  (n=538 days both active)
+  holdout same-day session returns, corr(XLV,SPY) = +0.34  (n=517 days both active)
+  holdout gross (0 bp) means: XLV -3.76  XLU -2.33  XLP -1.61  XLF -6.56

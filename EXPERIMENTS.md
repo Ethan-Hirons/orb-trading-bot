@@ -535,6 +535,8 @@ reason it fails is concentration, and only a validated harness could show it.
 | 2026-10-27 | news attribution fix | code | — | shared `_seen_ids` sent IREN headlines to CRWV (paper) / WULF (live) | **FIXED** f26338d, deploy to both together |
 | 2026-10-27 | E15 index ETFs | sim | 2,698 sessions | H1–H4 on SPY, 0 of 4 pass; H3 on QQQ +11.8 bp holdout, post-hoc | **0/4 scored**; QQQ lead needs forward data |
 | 2026-10-27 | E16 drafted | shadow + paper | — | QQQ noise-area forward test; gate fixed before 2026-10-28 | **DRAFT**, awaiting Ethan's approval |
+| 2026-10-30 | E16 close-out failure | paper | 1 | MOC filled 9/14, rest expired; 16:05 flatten queued a buy for the next open; short 5 carried | **FIXED** 8ff7538 (market exit from 15:58, nothing queued after hours); Stage A restarts |
+| 2026-11-01 | E17 mechanism test | sim | 6 new ETFs | (a) treatment +4.7 bp p=0.056 FAIL; (b) +8.3 PASS; (c) ρ +0.64 PASS. SMH/XLK work, XLF loses | **NOT SUPPORTED**; E16 unchanged, its mechanism claim weakened |
 
 
 ## E14 — Edge scan: does the entry signal have drift at all?  ⛔ NO. Read this before opening E15.
@@ -592,3 +594,26 @@ Pre-registered in `PREREG-QQQ-NOISE-PAPER-2026-10-27.md`. Rules are frozen as E1
 account (`/opt/orb-noise`, installed by `deploy/setup-noise.sh`, never imports the ORB bot). Futility looks at 120 and 180 active sessions; the only
 passing look is at 250 (~Jul 2028): t ≥ 1.645, long-only > 0, and positive without the top 5.
 P(pass) ≈ 63% if the holdout-sized edge is real, ≤ 5% if there is none.
+
+**2026-11-01:**
+- The close-out was fixed (`ANALYSIS-2026-11-01-e16-closeout.md`), so Stage A restarts.
+- E17 found the leveraged-flow mechanism NOT SUPPORTED on unseen ETFs. A future PASS here would
+  need a different criterion-5 mechanism.
+
+
+## E17: does E16's mechanism hold on unseen ETFs?  ⛔ NOT SUPPORTED (narrowly)
+
+**Run 2026-11-01.** Pre-registered in `PREREG-MECHANISM-2026-11-01.md` (committed `4444b1d` before
+any data), analysis in `ANALYSIS-2026-11-01-mechanism.md`.
+
+**Design:** the frozen E16 rule, unchanged, on SMH/XLK/XLF (large leveraged complexes) and
+XLV/XLU/XLP (small). The predictor is R = Σ AUM × (L² − L) / ADV$.
+
+**Results:**
+- **(a) failed:** the pooled treatment made +4.7 bp, one-sided p = 0.056.
+- **SMH (+12.5) and XLK (+10.5) work; XLF (−7.6) loses.**
+- **(b) passed:** treatment minus control +8.3 bp.
+- **(c) passed:** rank correlation ρ = +0.64.
+
+**Post-hoc:** XLK's results correlate 0.87 with QQQ's. The pattern looks like large-cap tech and
+semis, not leveraged flow, and every low-flow ETF loses. **E16 is unchanged.**
