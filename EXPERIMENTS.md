@@ -636,3 +636,34 @@ semis, not leveraged flow, and every low-flow ETF loses. **E16 is unchanged.**
   failed the 2017–2026 half on both CAGR and Sharpe.
 
 **Closed: no re-run on other lookbacks, weights or universes, and no bot.**
+
+## E19: survey of published daily strategies  🟡 1 of 7 passed (BTC trend), and that pass is fading
+
+**Run 2026-11-11.** Pre-registered in `PREREG-SURVEY-2026-11-11.md` (committed `3269bee` before
+any data), analysis in `ANALYSIS-2026-11-11-survey.md`, workbook `E19-strategy-survey.xlsx`.
+
+**Design:** seven tests of six published families, frozen at their sources' parameters, scored
+2016-01 → 2026-11 net of costs. One bar for all: alpha against the rule's own underlying with
+t ≥ 2.45 (Bonferroni for seven), plus four robustness criteria.
+
+**Results:**
+- **Mean reversion on SPY and QQQ** (RSI(2), IBS band): alpha t between 0.8 and 1.8. They had
+  t near 4 before 2016. What is left is mostly market exposure.
+- **RSI(2) dip-buying across the top-200 stocks:** alpha −4.3% a year, drawdown −42%.
+- **VIX premium** (t = 1.45, drawdown −29.7%) and **leveraged 200-day trend** (t = 0.83,
+  drawdown −43%) fail. E18 is untouched.
+- **BTC Donchian ensemble: PASS**, alpha +9.7% a year, t = 2.75, drawdown −20%. But the alpha
+  is +17.8% in the first half and +1.4% (t = 0.35) in the second, and negative since the
+  source paper's 2025 publication.
+
+**Closed for the six failures:** no re-runs with other thresholds, lookbacks or instruments.
+
+## E20: BTC Donchian ensemble, forward test  🟢 SHADOW CLOCK from 2026-11-12; paper runner not yet deployed
+
+Pre-registered in `PREREG-BTC-TREND-PAPER-2026-11-11.md`. The rule is E19's C5, frozen in
+`survey.donchian_targets`. **Evidence** is the shadow record on Alpaca's daily BTC/USD closes at
+30 bp per side (`btc_bot.py shadow`). **Costs and mechanics** come from `btc_bot.py run` on its
+own paper account, once Ethan creates it. Looks at 180 days (report), 365 and 730 (futility if
+alpha ≤ 0) and 1,095 (final: t ≥ 1.645, total return > 0, drawdown ≥ −25%, positive without the
+best 10 days). P(pass) is about 40–45% if the 2016–2026 edge is real, about 8% if the
+2021–2026 edge is, and ≤ 5% if there is none.

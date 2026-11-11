@@ -1,0 +1,27 @@
+[Unit]
+Description=E20 BTC trend paper runner (one daily rebalance, its own paper account)
+After=network-online.target
+Wants=network-online.target
+OnFailure=orb-alert@%n.service
+
+[Service]
+Type=oneshot
+User=orb
+WorkingDirectory=/opt/orb-btc
+ExecStart=/opt/orb-btc/.venv/bin/python -u btc_bot.py run
+
+# One order at most, then exit. Exit 2 means refused (wrong account, foreign positions,
+# stale data or disarmed) and needs a human, so nothing retries it.
+TimeoutStartSec=600
+
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/orb-btc/logs /opt/orb-btc/state
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the E20 BTC paper rebalance once a day, just after the 00:00 UTC close
+
+[Timer]
+# Crypto trades every day, so this runs every day. 00:10 UTC is 19:10 or 20:10 New York
+# time; stating it in UTC keeps it on the daily close through daylight-saving changes.
+OnCalendar=*-*-* 00:10:00 UTC
+Persistent=true
+Unit=orb-btc.service
+
+[Install]
+WantedBy=timers.target

@@ -75,6 +75,8 @@ shows each pair in order.
 | `ANALYSIS-2026-10-25.md` | Bar resolution artifacts in the replay grids |
 | `ANALYSIS-2026-11-01-mechanism.md` | E17 mechanism test on unseen ETFs, not supported |
 | `ANALYSIS-2026-11-01-trend.md` | E18 trend following, both variants failed |
+| `ANALYSIS-2026-11-11-survey.md` | E19 survey of seven published daily strategies. One passed (BTC trend), and its edge is fading |
+| `PREREG-BTC-TREND-PAPER-2026-11-11.md` | E20, the forward test of that one pass |
 | `RUNBOOK-2026-08-23.md` | The 0 of 6 out-of-sample rejection |
 | `EXPERIMENTS.md` | Index of every experiment and its status |
 
