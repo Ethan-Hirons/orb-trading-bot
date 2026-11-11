@@ -172,5 +172,6 @@ trades were checked and are real events.
 
 **Post hoc, labelled as such** (`survey_posthoc.txt`): vol-targeted buy and hold BTC t = 1.07;
 the same ensemble on ETH from 2019 t = 1.47; C2's tuned variants and C2 on SPY and IWM all
-weaker than C2 on QQQ; monthly momentum in C6's universe shows no alpha. None of these changes
-a verdict.
+weaker than C2 on QQQ; monthly momentum in C6's universe shows no alpha; 13 neighbouring
+settings of C5 give alpha t from 2.10 to 2.81, all with the same second-half fade. None of
+these changes a verdict.

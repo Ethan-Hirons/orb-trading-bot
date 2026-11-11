@@ -412,6 +412,7 @@ NOTES_SUMMARY = [
 
 POSTHOC_NOTES = [
     "Vol-targeted buy and hold BTC (no trend rule) scores alpha t 1.07, so the Donchian rule is doing real work beyond position sizing: t 2.75 and half the drawdown.",
+    "Thirteen neighbouring settings of C5 (volatility target 20-30%, band 0.02-0.10, short or long lookbacks only, without the 5-day or 360-day model) give alpha t from 2.10 to 2.81; 12 of 13 clear 2.45. All show the same fade in the second half. The paper's own BTC table (2015-2025, no costs) reports Sharpe 1.58, drawdown 19%, alpha 14%, beta 0.17; this run gives 1.34, 20.2%, 9.7%, 0.18 after costs.",
     "The same ensemble on ETH (2019 on) is positive but not significant (t 1.47). ETH was not pre-registered.",
     "The article's own tuned C2 variants (300-day SMA exit or filter) do worse than its base rule from 2016, and the base rule shows nothing on SPY or IWM. The IBS result is specific to QQQ, which is a warning.",
     "Monthly momentum in C6's stock universe (1-month and 12-1) shows no alpha against SPY either. The first run of that check had a look-ahead bug (it showed +772% a year); it was caught, fixed and re-run before anything was read from it.",

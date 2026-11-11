@@ -593,6 +593,30 @@ def monthly_momentum(lookback: int, skip: int, top: int = 20, cost: float = 0.00
     return pd.DataFrame({"raw": raw, "w": held})
 
 
+def _donchian_variant(close: pd.Series, lookbacks, vol_target: float) -> pd.Series:
+    """POST HOC only: donchian_targets with other lookbacks or volatility target. The frozen
+    rule (E20) is donchian_targets itself and is not routed through here."""
+    vol = close.pct_change().rolling(90).std() * np.sqrt(365)
+    size = (vol_target / vol).clip(upper=1.0)
+    c = close.to_numpy()
+    total = np.zeros(len(c))
+    for n in lookbacks:
+        hi = close.rolling(n).max().to_numpy()
+        mid = (hi + close.rolling(n).min().to_numpy()) / 2
+        on, stop = False, np.nan
+        for i in range(len(c)):
+            if np.isnan(hi[i]):
+                continue
+            if on:
+                stop = max(stop, mid[i])
+                if c[i] < stop:
+                    on = False
+            elif c[i] >= hi[i]:
+                on, stop = True, mid[i]
+            total[i] += 1.0 if on else 0.0
+    return (pd.Series(total / len(lookbacks), index=close.index) * size).fillna(0.0)
+
+
 def posthoc() -> None:
     """Outside the PREREG. Nothing here can produce a pass; it only helps read the results."""
     out, sims, trades, bench, px = run_all()
@@ -627,6 +651,30 @@ def posthoc() -> None:
     print("  " + _line("ph", r))
     for name, lbs in (("short lookbacks 5-30", (5, 10, 20, 30)), ("long lookbacks 60-360", (60, 90, 150, 250, 360))):
         pass
+
+    print()
+    print("== C5: is the pass a knife-edge? Neighbouring settings, same costs (alpha t; scored rule marked *)")
+    ALL = (5, 10, 20, 30, 60, 90, 150, 250, 360)
+    ret_next = btc["c"].pct_change().shift(-1)
+    assert np.allclose(_donchian_variant(btc["c"], ALL, 0.25), donchian_targets(btc["c"]))
+    grid = []
+    for label, lbs, vt_, band in (
+            [("all nine, vol 25%, band 0.05 *", ALL, 0.25, 0.05)] +
+            [(f"all nine, vol {int(v * 100)}%, band {b:.2f}", ALL, v, b)
+             for v in (0.20, 0.25, 0.30) for b in (0.02, 0.05, 0.10) if (v, b) != (0.25, 0.05)] +
+            [("short lookbacks 5-30 only", ALL[:4], 0.25, 0.05),
+             ("long lookbacks 60-360 only", ALL[4:], 0.25, 0.05),
+             ("without the 5-day model", ALL[1:], 0.25, 0.05),
+             ("without the 360-day model", ALL[:-1], 0.25, 0.05)]):
+        wg, tg_ = apply_threshold(_donchian_variant(btc["c"], lbs, vt_), ret_next, band, False)
+        r = summarise(label, simulate(wg, tg_, btc, rfb, c0), bench["BTC"], 365)
+        grid.append(r["alpha_t"])
+        print(f"  {label:34} alpha {r['alpha_ann']:+6.2%}  t {r['alpha_t']:+5.2f}  halves "
+              f"{r['alpha_h1']:+6.2%}/{r['alpha_h2']:+6.2%}  maxDD {r['mdd']:+6.1%}")
+    print(f"  {len(grid)} settings: alpha t from {min(grid):.2f} to {max(grid):.2f}, "
+          f"{sum(t >= T_BAR for t in grid)} at or above {T_BAR}")
+    print("  paper's own Table 1 (2015-01 to 2025-03, no costs, 200% cap): CAGR 30%, vol 17%, "
+          "Sharpe 1.58, MDD 19%, alpha 14%, beta 0.17")
 
     print()
     print("== C2: the article's tuned variants, and the same rule elsewhere")

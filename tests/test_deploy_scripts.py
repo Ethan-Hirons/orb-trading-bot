@@ -85,6 +85,25 @@ def test_vps_setup_does_not_patch_tracked_files():
     print("PASS test_vps_setup_does_not_patch_tracked_files")
 
 
+def test_btc_setup_and_units_are_consistent():
+    """E20 (2026-11-11): the BTC runner must use its own venv, its own account, and never
+    restart itself after a refusal."""
+    setup = (ROOT / "deploy" / "setup-btc.sh").read_text(encoding="utf-8")
+    unit = (ROOT / "deploy" / "orb-btc.service").read_text(encoding="utf-8")
+    timer = (ROOT / "deploy" / "orb-btc.timer").read_text(encoding="utf-8")
+    bad = [ln for ln in _code_lines(setup) + _code_lines(unit)
+           if re.search(r"(^|[^/\w\"'$])python3?\s+(-u\s+)?btc_bot\.py", ln)]
+    assert not bad, "a bare interpreter runs btc_bot.py: " + "; ".join(bad)
+    assert "/opt/orb-btc/.venv/bin/python -u btc_bot.py run" in unit
+    assert "Restart=" not in unit, "a refused run must wait for a human, not retry"
+    assert "requirements-btc.txt" in setup, "the runner needs numpy and pandas, not just requirements.txt"
+    for other in ("/opt/orb-bot/.env", "/opt/orb-bot-live/.env", "/opt/orb-noise/.env"):
+        assert other in setup, f"setup-btc.sh must prove the account differs from {other}"
+    assert "BTC_ACCOUNT=" in setup and "PUT_THE_E20" in setup
+    assert "UTC" in timer, "the daily close is 00:00 UTC; a local-time timer drifts with DST"
+    print("PASS test_btc_setup_and_units_are_consistent")
+
+
 def run_all():
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

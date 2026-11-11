@@ -135,6 +135,21 @@ doubled costs, a one-day delay and the removal of its ten best days.
    with no trend rule scores t = 1.07 and a −43% drawdown. The trend rule adds something
    beyond sizing.
 
+**Two checks that the result is not an artefact of this code or of one setting:**
+
+- **It reproduces the paper.** The paper's own table for the BTC ensemble (2015-01 to 2025-03,
+  no costs, 200% cap) reports a 30% CAGR, 17% volatility, Sharpe 1.58, a 19% drawdown, 14%
+  alpha and a beta of 0.17. This run (2016-01 to 2026-11, 30 bp costs, 100% cap) gives 23.4%,
+  16.3%, 1.34, 20.2%, 9.7% and 0.18. The entry, the ratcheting midpoint stop and the sizing
+  were checked against the paper's text after the run, and they match (the paper exits on a
+  close at or below the stop, this code on a close below it). Two stated differences:
+  no leverage here, and a simpler rebalance band (0.05 of equity, against the paper's 20%
+  band on volatility-driven changes only).
+- **It is not a knife-edge.** Post hoc, 13 neighbouring settings (volatility target 20–30%,
+  band 0.02–0.10, short lookbacks only, long only, without the 5-day or the 360-day model)
+  give alpha t between 2.10 and 2.81, and 12 of the 13 clear 2.45. **Every one of them also
+  shows the same fade:** second-half alpha between −0.9% and +2.6% a year.
+
 The honest summary: this is a rule that kept a small, steady BTC position through bull runs
 and stepped aside in crashes. It passed the bar that was set. Its recent record is ordinary.
 
@@ -161,14 +176,21 @@ Full output in `survey_posthoc.txt` and the `Post hoc` sheet.
 | `survey_data.py`, `survey.py` | Data fetch and the seven backtests. `python survey.py report` reproduces `survey_out.txt`. |
 | `survey_xlsx.py`, `E19-strategy-survey.xlsx` | The workbook: summary, criteria, yearly returns, equity curves with charts, 5,258 trades, post hoc, research notes, method. |
 | `btc_bot.py` | The E20 paper runner. `plan` and `shadow` are read-only. `run` does one daily rebalance and refuses on a wrong account, foreign positions, stale data or the disarm file. |
-| `tests/test_survey.py`, `tests/test_btc_bot.py` | 30 tests, all passing: no look-ahead, simulator arithmetic, the runner's refusals and orders against a fake broker. |
-| `deploy/orb-btc.service`, `deploy/orb-btc.timer` | systemd units: one run a day at 00:10 UTC. |
+| `tests/test_survey.py`, `tests/test_btc_bot.py` | 30 tests, all passing (plus a static check of the deploy files): no look-ahead, simulator arithmetic, the runner's refusals and orders against a fake broker. |
+| `deploy/orb-btc.service`, `deploy/orb-btc.timer`, `deploy/setup-btc.sh` | systemd units (one run a day at 00:10 UTC) and a one-command installer modelled on E16's. |
 | `PREREG-BTC-TREND-PAPER-2026-11-11.md` | E20: the frozen rule, the shadow record as evidence from 2026-11-12, looks at 180/365/730/1,095 days, and the power statement. |
 
 `python btc_bot.py plan` today: the target is **6.6% of equity in BTC**. BTC is at about
 $73,700, down from a $124,750 peak in October 2025, so seven of the nine models are flat.
 On a $10,000 account the first order would be a $663 buy. **Expect the paper account to look
 quiet until BTC trends again.** That is the rule working, not the bot failing.
+
+**Alpaca's crypto rules, checked against its docs and the live asset record:** market
+orders by dollar amount are accepted, time-in-force `gtc`; the minimum BTC order is about $1;
+crypto cannot be shorted or bought on margin, which suits a long-only rule; the taker fee is
+0.25% at this account size, charged in the asset received and posted at end of day. The docs
+do not say whether paper accounts simulate that fee. Stage A will show it, and the shadow
+record charges 30 bp per side either way.
 
 No order was placed and no account was touched in any of this. `run` has only been exercised
 against the fake broker in the tests.
@@ -192,43 +214,26 @@ holdout Sharpe.
    ORB or E16 accounts.
 2. **Merge and push.** This work is on the branch `claude/trading-bot-research-backtest-830d83`,
    committed and not pushed.
-3. **Install on the VPS** (after the push; each block is one command, run as root):
+3. **Install on the VPS** (after the push). `deploy/setup-btc.sh` does it in one command, the
+   way `setup-noise.sh` did for E16: it builds `/opt/orb-btc`, stops for you to paste the keys,
+   proves the account is not the ORB or E16 one, shows the day's plan, and enables the timer.
+   Each block is one command, run as root:
 
    ```bash
-   mkdir -p /opt/orb-btc && chown orb:orb /opt/orb-btc
+   systemctl is-active orb-bot
    ```
    ```bash
-   sudo -u orb git clone https://github.com/Ethan-Hirons/orb-trading-bot.git /opt/orb-btc
+   cd /opt/orb-bot && git pull && chown -R orb:orb /opt/orb-bot
    ```
    ```bash
-   sudo -u orb python3 -m venv /opt/orb-btc/.venv
+   bash /opt/orb-bot/deploy/setup-btc.sh
    ```
-   ```bash
-   sudo -u orb /opt/orb-btc/.venv/bin/pip install -r /opt/orb-btc/requirements-btc.txt
-   ```
-   ```bash
-   sudo -u orb mkdir -p /opt/orb-btc/logs /opt/orb-btc/state
-   ```
-   ```bash
-   sudo -u orb cp /opt/orb-bot/deploy/notify.env /opt/orb-btc/deploy/notify.env
-   ```
-   Then create `/opt/orb-btc/.env` yourself (mode 600, owner `orb`) with four lines:
-   `ALPACA_API_KEY=`, `ALPACA_SECRET_KEY=`, `ALPACA_PAPER=true` and `BTC_ACCOUNT=` set to the
-   new account's number. Check it before enabling anything:
-
-   ```bash
-   cd /opt/orb-btc && sudo -u orb .venv/bin/python btc_bot.py plan
-   ```
-   ```bash
-   cd /opt/orb-btc && sudo -u orb .venv/bin/python btc_bot.py status
-   ```
-   `status` must show the new account number, no positions and no open orders. Then:
-
-   ```bash
-   cp /opt/orb-btc/deploy/orb-btc.service /opt/orb-btc/deploy/orb-btc.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now orb-btc.timer
-   ```
-   To skip days: `sudo -u orb touch /opt/orb-btc/state/BTC_DISARMED`.
-   These steps were written from the E16 install and **have not been run on the VPS**.
+   The first run stops and asks for the keys. Paste them with
+   `sudo -u orb nano /opt/orb-btc/.env`, then run the same command again. To skip days later:
+   `sudo -u orb touch /opt/orb-btc/state/BTC_DISARMED`.
+   **The script was written from the E16 one and has not been run on the VPS.** It passes
+   `bash -n` and the static checks in `tests/test_deploy_scripts.py`; read each step's output
+   the first time.
 4. **Not recommended:** a paper bot for C2 (IBS on QQQ). It failed the bar, it is specific to
    one ETF, and at 12 trades a year paper could not tell it from luck before 2030.
 

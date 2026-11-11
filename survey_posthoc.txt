@@ -8,6 +8,23 @@ POST HOC. None of this was pre-registered and none of it can produce a pass.
   2025-2026: C5 total   -9.6%  Sharpe -0.53  alpha  -4.5% t -0.82  maxDD -16.0%   (BTC buy and hold   -21.1%, maxDD -53.1%)
   ph   Donchian ensemble, ETH (2019+)     alpha  +4.96% t +1.47  beta  0.12  halves +9.25%/+1.04%  Sharpe  0.95  CAGR +13.14%  maxDD -16.9%  in-mkt  81%  [nYnYY] FAIL
 
+== C5: is the pass a knife-edge? Neighbouring settings, same costs (alpha t; scored rule marked *)
+  all nine, vol 25%, band 0.05 *     alpha +9.74%  t +2.75  halves +17.81%/+1.44%  maxDD -20.2%
+  all nine, vol 20%, band 0.02       alpha +7.53%  t +2.64  halves +14.58%/+0.32%  maxDD -17.7%
+  all nine, vol 20%, band 0.05       alpha +7.65%  t +2.65  halves +13.54%/+1.59%  maxDD -16.7%
+  all nine, vol 20%, band 0.10       alpha +7.20%  t +2.54  halves +12.55%/+1.75%  maxDD -15.1%
+  all nine, vol 25%, band 0.02       alpha +9.56%  t +2.68  halves +18.48%/+0.49%  maxDD -20.6%
+  all nine, vol 25%, band 0.10       alpha +9.10%  t +2.50  halves +15.67%/+2.22%  maxDD -18.5%
+  all nine, vol 30%, band 0.02       alpha +11.25%  t +2.67  halves +21.70%/+0.63%  maxDD -24.5%
+  all nine, vol 30%, band 0.05       alpha +11.13%  t +2.64  halves +21.38%/+0.70%  maxDD -25.7%
+  all nine, vol 30%, band 0.10       alpha +11.95%  t +2.78  halves +20.90%/+2.62%  maxDD -27.1%
+  short lookbacks 5-30 only          alpha +11.06%  t +2.81  halves +23.11%/-0.85%  maxDD -27.5%
+  long lookbacks 60-360 only         alpha +8.63%  t +2.10  halves +15.42%/+1.38%  maxDD -26.8%
+  without the 5-day model            alpha +9.76%  t +2.66  halves +17.04%/+2.15%  maxDD -20.2%
+  without the 360-day model          alpha +9.52%  t +2.67  halves +18.51%/+0.44%  maxDD -21.3%
+  13 settings: alpha t from 2.10 to 2.81, 12 at or above 2.45
+  paper's own Table 1 (2015-01 to 2025-03, no costs, 200% cap): CAGR 30%, vol 17%, Sharpe 1.58, MDD 19%, alpha 14%, beta 0.17
+
 == C2: the article's tuned variants, and the same rule elsewhere
   ph   C2 + exit below 300-day SMA, QQQ   alpha  +0.67% t +0.22  beta  0.27  halves -0.13%/+1.33%  Sharpe  0.47  CAGR +5.35%  maxDD -21.6%  in-mkt  15%  [nnYYY] FAIL  trades/yr 14.1
   ph   C2 + only above 300-day SMA, QQQ   alpha  +1.92% t +0.81  beta  0.19  halves +0.82%/+2.60%  Sharpe  0.54  CAGR +5.27%  maxDD -13.2%  in-mkt  13%  [nYYYY] FAIL  trades/yr 8.9
