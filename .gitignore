@@ -50,3 +50,6 @@ relvol_sip.json
 edge_gap.csv
 .index_cache/
 .trend_cache/
+
+# E19 survey cache (Yahoo daily, Alpaca daily/monthly bars)
+.survey_cache/
