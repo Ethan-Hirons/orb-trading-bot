@@ -137,3 +137,40 @@ rule, TQQQ for SSO, ETH for BTC, a trend filter on C2) are reported, if at all, 
 
 ## Results (appended after the run)
 
+**Run 2026-11-11.** Full report: `ANALYSIS-2026-11-11-survey.md`. Raw output: `survey_out.txt`.
+Yahoo data downloaded 2026-11-11 17:00 UTC; scored through the 2026-11-10 close.
+
+| # | Rule | Alpha / yr | Alpha t | Halves | Max DD | 1 | 2 | 3 | 4 | 5 | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| C1a | RSI(2), SPY | +2.93% | +1.82 | +0.81% / +4.99% | −11.3% | n | Y | Y | Y | Y | FAIL |
+| C1b | RSI(2), QQQ | +1.62% | +0.82 | −2.26% / +5.32% | −9.7% | n | n | Y | Y | Y | FAIL |
+| C2 | IBS band, QQQ | +3.36% | +1.08 | +1.32% / +5.29% | −16.4% | n | Y | Y | Y | Y | FAIL |
+| C3 | VIX premium, VIXY | +9.75% | +1.45 | +17.26% / +3.32% | −29.7% | n | Y | Y | Y | n | FAIL |
+| C4 | 200-day trend, SSO | +4.63% | +0.83 | +8.94% / +0.42% | −43.1% | n | Y | Y | Y | n | FAIL |
+| C5 | Donchian ensemble, BTC | +9.74% | +2.75 | +17.81% / +1.44% | −20.2% | Y | Y | Y | Y | Y | **PASS** |
+| C6 | RSI(2), top-200 stocks | −4.33% | −0.82 | −7.55% / −0.98% | −42.0% | n | n | Y | n | n | FAIL |
+
+**One of seven passes: C5.** It trades about 63 times a year, so by the selection rule above
+it is the candidate for the forward paper test, which is E20
+(`PREREG-BTC-TREND-PAPER-2026-11-11.md`).
+
+As this file said before the run, a pass for C5 carries less weight: its source was published
+in April 2025, so most of the scored period is inside the authors' sample. The second-half
+alpha is +1.44% a year at t = 0.35, and the rule is slightly negative since publication
+(alpha −3.3% a year, t = −0.53, 19 months).
+
+**Interpretations made while coding, before any result was seen:**
+- Criterion 5's drawdown is measured on the "cash earns nothing" equity curve.
+- C5's "next open" stress is a one-day delay, since BTC has no open distinct from the prior close.
+- "Latest close" is 2026-11-10: the 2026-11-11 bar was still forming when the data was fetched.
+- C6's keyword filter, as written above, also removes real companies listed as "... Shares" or
+  "... Trust" (many ADRs and REITs). It was left as pre-registered.
+
+**C6 data build:** 33,560 Alpaca assets, 4,929 kept (773 inactive), 572 names ever in the
+top 200, 51 of them since delisted. 0.12% of daily returns exceed 25% in size; the worst
+trades were checked and are real events.
+
+**Post hoc, labelled as such** (`survey_posthoc.txt`): vol-targeted buy and hold BTC t = 1.07;
+the same ensemble on ETH from 2019 t = 1.47; C2's tuned variants and C2 on SPY and IWM all
+weaker than C2 on QQQ; monthly momentum in C6's universe shows no alpha. None of these changes
+a verdict.

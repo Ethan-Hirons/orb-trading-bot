@@ -1,0 +1,46 @@
+E19 survey. Scored 2016-01-01 -> 2026-11-10 (C6 from 2017-01-01). Bar: alpha t >= 2.45, five criteria [1..5].
+
+C1a  RSI(2) pullback, SPY               alpha  +2.93% t +1.82  beta  0.12  halves +0.81%/+4.99%  Sharpe  0.74  CAGR +4.66%  maxDD -11.3%  in-mkt  11%  [nYYYY] FAIL
+C1b  RSI(2) pullback, QQQ               alpha  +1.62% t +0.82  beta  0.14  halves -2.26%/+5.32%  Sharpe  0.49  CAGR +4.05%  maxDD  -9.7%  in-mkt  13%  [nnYYY] FAIL
+C2   IBS band reversion, QQQ            alpha  +3.36% t +1.08  beta  0.35  halves +1.32%/+5.29%  Sharpe  0.72  CAGR +9.53%  maxDD -16.4%  in-mkt  18%  [nYYYY] FAIL
+C3   Dual-signal VIX premium, VIXY      alpha  +9.75% t +1.45  beta  0.10  halves +17.26%/+3.32%  Sharpe  0.66  CAGR +9.84%  maxDD -29.7%  in-mkt  95%  [nYYYn] FAIL
+C4   Leveraged 200-day trend, SSO       alpha  +4.63% t +0.83  beta  0.90  halves +8.94%/+0.42%  Sharpe  0.69  CAGR +16.65%  maxDD -43.1%  in-mkt  84%  [nYYYn] FAIL
+C5   Crypto Donchian ensemble, BTC      alpha  +9.74% t +2.75  beta  0.18  halves +17.81%/+1.44%  Sharpe  1.34  CAGR +23.36%  maxDD -20.2%  in-mkt  86%  [YYYYY] PASS
+C6   RSI(2) pullback, top-200 stocks    alpha  -4.33% t -0.82  beta  0.75  halves -7.55%/-0.98%  Sharpe  0.25  CAGR +5.08%  maxDD -42.0%  in-mkt  97%  [nnYnn] FAIL
+
+== detail
+C1a RSI(2) pullback, SPY: mean excess +4.49%/yr, stress costs +3.97%, next-open +3.18%; half t +0.31/+2.59; vol 6.1%; corr with benchmark +0.35; sum of trade returns without the best 5 of 93: +36.16%
+     93 trades (8.6/yr), win rate 75%, mean +0.54%, median +0.81%, worst -4.2%, avg hold 4.8 calendar days
+C1b RSI(2) pullback, QQQ: mean excess +4.07%/yr, stress costs +3.56%, next-open +2.63%; half t -0.74/+2.06; vol 8.3%; corr with benchmark +0.37; sum of trade returns without the best 5 of 91: +30.32%
+     91 trades (8.4/yr), win rate 66%, mean +0.49%, median +1.12%, worst -4.6%, avg hold 5.5 calendar days
+C2 IBS band reversion, QQQ: mean excess +9.55%/yr, stress costs +8.82%, next-open +7.66%; half t +0.28/+1.26; vol 13.2%; corr with benchmark +0.59; sum of trade returns without the best 7 of 131: +60.97%
+     131 trades (12.1/yr), win rate 67%, mean +0.79%, median +1.07%, worst -7.8%, avg hold 5.5 calendar days
+C3 Dual-signal VIX premium, VIXY: mean excess +11.05%/yr, stress costs +10.35%, next-open +12.86%; half t +1.43/+0.86; vol 16.8%; corr with benchmark +0.10; sum of daily returns without the best 10 days: +24.66%
+C4 Leveraged 200-day trend, SSO: mean excess +16.46%/yr, stress costs +16.31%, next-open +16.55%; half t +1.02/+0.06; vol 23.8%; corr with benchmark +0.67; sum of trade returns without the best 2 of 26: +38.13%
+     26 trades (2.4/yr), win rate 42%, mean +8.66%, median -1.55%, worst -8.7%, avg hold 118.7 calendar days
+C5 Crypto Donchian ensemble, BTC: mean excess +21.79%/yr, stress costs +20.05%, next-open +20.23%; half t +3.12/+0.35; vol 16.3%; corr with benchmark +0.73; sum of daily returns without the best 10 days: +171.79%
+C6 RSI(2) pullback, top-200 stocks: mean excess +5.60%/yr, stress costs +0.56%, next-open +5.39%; half t -1.05/-0.13; vol 22.2%; corr with benchmark +0.61; sum of trade returns without the best 246 of 4917: -1608.73%
+     4917 trades (499.1/yr), win rate 65%, mean +0.15%, median +0.87%, worst -52.2%, avg hold 5.8 calendar days
+
+== year by year, cash-earns-nothing basis
+  year       C1a      C1b       C2       C3       C4       C5       C6
+  2016     +2.7%    -5.8%    +9.5%    +7.8%   +16.6%   +72.0%    +nan%
+  2017     +5.5%    +8.8%   +10.6%   +15.6%   +44.4%   +91.5%   +13.1%
+  2018     -6.1%    -1.9%    +5.8%    -7.4%   -13.4%    -8.6%    -9.3%
+  2019     +1.6%    +1.3%    +0.2%    +1.0%   +25.6%   +32.9%    +5.4%
+  2020     +6.9%    +1.8%   +16.1%   +49.7%   +33.1%   +57.5%   +19.1%
+  2021    +11.9%   +10.4%   +13.8%   +23.6%   +60.6%   +13.2%    -7.4%
+  2022     -3.0%    -3.7%    +8.9%    +4.8%   -34.1%   -11.3%   -12.5%
+  2023     +3.3%    +4.6%   +10.6%   +21.6%   +18.2%   +28.5%    +8.7%
+  2024    +13.5%   +18.2%    +8.8%    +2.2%   +43.5%   +32.8%   +26.5%
+  2025     +6.0%    +5.9%    +9.3%    +8.2%   +12.9%    -7.4%    +9.0%
+  2026    +10.0%    +6.6%   +10.4%    -8.8%    +7.6%    -2.4%    +4.1%
+
+== descriptive only: before 2016, and after each source's publication
+  C1a: pre-2016 (1993-11-23..): alpha +4.29% t +3.78 Sharpe 0.80;  since 2008-11-01 (2008-11-03..): alpha +2.59% t +1.91 Sharpe 0.66
+  C1b: pre-2016 (2000-01-07..): alpha +4.17% t +2.35 Sharpe 0.51;  since 2008-11-01 (2008-11-03..): alpha +1.74% t +1.06 Sharpe 0.55
+  C2: pre-2016 (1999-04-19..): alpha +12.99% t +3.96 Sharpe 0.89;  since 2024-05-20 (2024-05-20..): alpha +2.23% t +0.36 Sharpe 0.59
+  C3: pre-2016 (2011-01-05..): alpha +7.45% t +1.70 Sharpe 1.08;  since 2025-06-25 (2025-06-25..): alpha -8.89% t -1.24 Sharpe -0.09
+  C4: pre-2016 (2006-07-03..): alpha +4.44% t +0.73 Sharpe 0.41;  since 2016-03-01 (2016-03-01..): alpha +4.32% t +0.76 Sharpe 0.71
+  C5: pre-2016 (2015-01-23..): alpha +6.37% t +0.71 Sharpe 1.47;  since 2025-04-08 (2025-04-08..): alpha -3.29% t -0.53 Sharpe -0.30
+  C6: pre-2016: too short;  since 2008-11-01 (2016-01-04..): alpha -3.55% t -0.72 Sharpe 0.27
