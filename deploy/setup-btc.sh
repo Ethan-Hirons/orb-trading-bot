@@ -34,9 +34,9 @@ if [[ -d $BTC/.git ]]; then
 else
   mkdir -p "$BTC"
   chown orb:orb "$BTC"
-  sudo -u orb git clone --quiet "$PAPER" "$BTC"
-  sudo -u orb git -C "$BTC" remote set-url origin "$ORIGIN"
-  sudo -u orb git -C "$BTC" pull --ff-only --quiet
+  # Clone from GitHub, not from $PAPER: /opt/orb-bot can sit on an older or rewritten
+  # history (it did on 2026-11-12), and E20 needs the current main.
+  sudo -u orb git clone --quiet "$ORIGIN" "$BTC"
   ok "cloned at $(sudo -u orb git -C "$BTC" rev-parse --short HEAD)"
 fi
 [[ -f $BTC/btc_bot.py ]] || die "btc_bot.py missing -- push the E20 commit, then re-run"

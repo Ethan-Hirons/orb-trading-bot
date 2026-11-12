@@ -100,6 +100,8 @@ def test_btc_setup_and_units_are_consistent():
     for other in ("/opt/orb-bot/.env", "/opt/orb-bot-live/.env", "/opt/orb-noise/.env"):
         assert other in setup, f"setup-btc.sh must prove the account differs from {other}"
     assert "BTC_ACCOUNT=" in setup and "PUT_THE_E20" in setup
+    assert 'git clone --quiet "$ORIGIN"' in setup, "clone E20 from GitHub, not from /opt/orb-bot"
+    assert 'git clone --quiet "$PAPER"' not in setup
     assert "UTC" in timer, "the daily close is 00:00 UTC; a local-time timer drifts with DST"
     print("PASS test_btc_setup_and_units_are_consistent")
 
